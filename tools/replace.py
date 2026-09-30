@@ -2,7 +2,42 @@ import os
 import subprocess
 import sys
 import time
+import shutil
 from pathlib import Path
+
+def ensure_block_device(rootrun, device):
+    path = Path(device)
+
+    if path.exists():
+        if not path.is_block_device():
+            raise RuntimeError(f"{device} exists but is not a block device")
+        return
+
+    sysfs_dev = Path("/sys/class/block") / path.name / "dev"
+
+    for _ in range(50):
+        if sysfs_dev.exists():
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError(f"Kernel did not create {path.name}")
+
+    major, minor = sysfs_dev.read_text().strip().split(":")
+
+    run(rootrun, "mknod", device, "b", major, minor)
+
+def is_busybox():
+    losetup = shutil.which("losetup")
+    if not losetup:
+        return False
+
+    result = subprocess.run(
+        [losetup, "--help"],
+        capture_output=True,
+        text=True
+    )
+
+    return "busybox" in (result.stdout + result.stderr).lower()
 
 def run(*args):
     result = subprocess.run(args, capture_output=True, text=True)
@@ -21,7 +56,6 @@ def replace():
 
     kernel = "build/uorix.elf"
     init = "build/userland/init.elf"
-    shell = "build/userland/shell.elf"
 
     bootx64 = os.environ.get("BOOTX64", "/usr/share/limine/BOOTX64.EFI")
 
@@ -39,10 +73,6 @@ def replace():
         sys.stderr.write(f"Error: {init} not found – run with -b first\n")
         return 1
 
-    if not os.path.isfile(shell):
-        sys.stderr.write(f"Error: {shell} not found – run with -b first\n")
-        return 1
-
     if not os.path.isfile(bootx64):
         sys.stderr.write(f"Error: {bootx64} not found\n")
         return 1
@@ -52,15 +82,23 @@ def replace():
     mounted_root = False
 
     try:
-        loop = run(rootrun, "losetup", "--find", "--show", "--partscan", img)
+        isBusyBox = is_busybox()
+
+        if isBusyBox:
+            print("System is using BusyBox")
+            loop = run(rootrun, "losetup", "-f")
+            run(rootrun, "losetup", "-P", loop, img)
+        else:
+            print("System is using something else")
+            loop = run(rootrun, "losetup", "--find", "--show", "--partscan", img)
 
         time.sleep(0.5)
 
         esp = f"{loop}p1"
         root = f"{loop}p2"
 
-        if not Path(esp).is_block_device() or not Path(root).is_block_device():
-            raise RuntimeError("Loop partition devices did not appear properly")
+        ensure_block_device(rootrun, esp)
+        ensure_block_device(rootrun, root)
 
         run(rootrun, "mkdir", "-p", mnt)
         run(rootrun, "mkdir", "-p", rt)
@@ -79,8 +117,11 @@ def replace():
 
         run(rootrun, "mkdir", "-p", f"{rt}/bin")
 
-        run(rootrun, "cp", shell, f"{rt}/bin/sh")
-        run(rootrun, "cp", init, f"{rt}/bin/init")
+        run(rootrun, "cp", "build/userland/init.elf", f"{rt}/bin/init")
+
+        run(rootrun, "cp", "build/userland/shell/main.elf", f"{rt}/bin/sh")
+        run(rootrun, "cp", "build/userland/shell/yes.elf", f"{rt}/bin/yes")
+        run(rootrun, "cp", "build/userland/shell/libctest.elf", f"{rt}/bin/libctest")
 
         conf_path = "/tmp/uorix-limine.conf"
 
@@ -115,7 +156,6 @@ def replace():
 
     print(f"==> Image ready: {img}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(replace())
