@@ -19,7 +19,7 @@
 #define SYS_WAIT    61
 
 #define USER_LIMIT 0x00007FFFFFFFF000ULL
-#define EXT2_START_LBA 67584
+#define EXT2_START_LBA 65536
 
 struct trapframe *sys_exec(struct trapframe *tf, const char *user_path);
 

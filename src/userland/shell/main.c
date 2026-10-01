@@ -14,6 +14,8 @@ static const char *logo[] = {
     0
 };
 
+static const char *prompt = "$ ";
+
 static
 void
 cmd_help(void)
@@ -89,7 +91,7 @@ main(void)
     char line[128];
     int len;
 
-    printf("$ ");
+    printf(prompt);
 
     len = 0;
     line[0] = 0;
@@ -107,7 +109,7 @@ main(void)
 
             if (len == 0)
             {
-                printf("$ ");
+                printf(prompt);
                 continue;
             }
 
@@ -138,8 +140,7 @@ main(void)
 
                 if (pid < 0)
                 {
-                    printf("uorix: failed to spawn: %s\n",
-                           line + 4);
+                    printf("uorix: failed to spawn: %s\n", line + 4);
                 }
                 else
                 {
@@ -155,7 +156,7 @@ main(void)
 
             len = 0;
             line[0] = 0;
-            printf("$ ");
+            printf(prompt);
             continue;
         }
 
