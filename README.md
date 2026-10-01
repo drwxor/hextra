@@ -1,4 +1,4 @@
-# Hextra
+<img src="https://raw.githubusercontent.com/drwxor/hextra/refs/heads/master/.images/hextra_logo_white.png" />
 
 Hextra is a small experimental Unix-like operating system for x86_64.
 
