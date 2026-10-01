@@ -51,7 +51,7 @@ Hextra is currently tested with QEMU and OVMF.
 
 The project includes helper scripts for building, replacing the kernel in the disk image, generating ISO image, and starting QEMU.
 
-Helper can be ran via [uorix-tools](https://github.com/drwxor/uorix-tools)
+Helper scripts can be ran via [uorix-tools](https://github.com/drwxor/uorix-tools)
 
 ## Toolchain
 
