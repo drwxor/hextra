@@ -6,10 +6,12 @@
 #include "kernel/pmm.h"
 #include "kernel/elf.h"
 #include "kernel/fs/ext2.h"
+#include "kernel/fs/vfs.h"
 #include "kernel/paging.h"
 #include "kernel/heap.h"
 #include "kernel/process.h"
 #include "kernel/gdt.h"
+#include "kernel/sched.h"
 
 #include <stdint.h>
 
@@ -46,8 +48,7 @@ sys_exec(struct trapframe *tf, const char *user_path)
 {
     char path[128];
 
-    if (copy_user_string(path, sizeof(path),
-        (uint64_t)user_path) != 0)
+    if (copy_user_string(path, sizeof(path), (uint64_t)user_path) != 0)
     {
         tf->rax = (uint64_t)-1;
         return tf;
@@ -61,8 +62,7 @@ sys_exec(struct trapframe *tf, const char *user_path)
 
     void *file_buf = 0;
 
-    uint64_t file_size =
-    ext2_read_file(rootfs, path, &file_buf);
+    uint64_t file_size = ext2_read_file(rootfs, path, &file_buf);
 
     if (file_size == (uint64_t)-1 || file_buf == 0)
     {
@@ -72,8 +72,7 @@ sys_exec(struct trapframe *tf, const char *user_path)
 
     uint64_t user_stack_top = 0;
 
-    uint64_t user_pml4 =
-    paging_create_user_as(&user_stack_top);
+    uint64_t user_pml4 = paging_create_user_as(&user_stack_top);
 
     if (user_pml4 == 0)
     {
@@ -85,13 +84,7 @@ sys_exec(struct trapframe *tf, const char *user_path)
     uint64_t entry = 0;
     uint64_t brk = 0;
 
-    int rc = elf_load(
-        file_buf,
-        file_size,
-        user_pml4,
-        &entry,
-        &brk
-    );
+    int rc = elf_load(file_buf, file_size, user_pml4, &entry, &brk);
 
     kfree(file_buf);
 
@@ -159,10 +152,7 @@ sys_exit(struct trapframe *tf, int status)
 
     if (!parent)
     {
-        render_printf(
-            "\nprocess %d: exited\n",
-            child->pid
-        );
+        render_printf("\nprocess %d: exited\n", child->pid);
 
         for (;;)
             __asm__ volatile ("hlt");
@@ -172,10 +162,7 @@ sys_exit(struct trapframe *tf, int status)
 
     if (!parent->tf)
     {
-        render_printf(
-            "\nprocess %d: parent has no trapframe\n",
-            child->pid
-        );
+        render_printf("\nprocess %d: parent has no trapframe\n", child->pid);
 
         for (;;)
             __asm__ volatile ("hlt");
@@ -192,10 +179,7 @@ sys_spawn(const char *user_path)
 {
     char path[128];
 
-    if (copy_user_string(
-        path,
-        sizeof(path),
-                         (uint64_t)user_path) != 0)
+    if (copy_user_string(path, sizeof(path), (uint64_t)user_path) != 0)
     {
         return -1;
     }
@@ -205,8 +189,7 @@ sys_spawn(const char *user_path)
 
     void *file_buf = 0;
 
-    uint64_t file_size =
-    ext2_read_file(rootfs, path, &file_buf);
+    uint64_t file_size = ext2_read_file(rootfs, path, &file_buf);
 
     if (file_size == (uint64_t)-1 ||
         file_buf == 0)
@@ -226,8 +209,7 @@ sys_spawn(const char *user_path)
 
     uint64_t user_stack_top = 0;
 
-    uint64_t user_pml4 =
-    paging_create_user_as(&user_stack_top);
+    uint64_t user_pml4 = paging_create_user_as(&user_stack_top);
 
     if (!user_pml4)
     {
@@ -239,13 +221,7 @@ sys_spawn(const char *user_path)
     uint64_t entry = 0;
     uint64_t brk = 0;
 
-    int rc = elf_load(
-        file_buf,
-        file_size,
-        user_pml4,
-        &entry,
-        &brk
-    );
+    int rc = elf_load(file_buf, file_size, user_pml4, &entry, &brk);
 
     kfree(file_buf);
 
@@ -260,11 +236,7 @@ sys_spawn(const char *user_path)
     child->brk = brk;
     child->brk_start = brk;
 
-    process_make_user(
-        child,
-        entry,
-        user_stack_top
-    );
+    process_make_user(child, entry, user_stack_top);
 
     child->state = PROC_RUNNABLE;
 
@@ -326,28 +298,85 @@ syscall_handler(struct trapframe *tf)
             return tf;
 
         case SYS_SPAWN:
-            tf->rax = sys_spawn(
-                (const char *)tf->rdi
-            );
+            tf->rax = sys_spawn((const char *)tf->rdi);
             return tf;
 
         case SYS_WAIT:
-            return sys_wait(
-                tf,
-                (int)tf->rdi
-            );
+            return sys_wait(tf, (int)tf->rdi);
 
         case SYS_EXIT:
-            return sys_exit(
-                tf,
-                (int)tf->rdi
-            );
+            return sys_exit(tf, (int)tf->rdi);
 
         case SYS_EXEC:
-            return sys_exec(
-                tf,
-                (const char *)tf->rdi
-            );
+            return sys_exec(tf, (const char *)tf->rdi);
+
+        case SYS_OPEN:
+        {
+            char path[128];
+            if (copy_user_string(path, sizeof(path), tf->rdi) != 0)
+            {
+                tf->rax = (uint64_t)-1;
+                return tf;
+            }
+            tf->rax = vfs_open(path, (int)tf->rsi);
+            return tf;
+        }
+
+        case SYS_CLOSE:
+            tf->rax = vfs_close((int)tf->rdi);
+            return tf;
+
+        case SYS_FREAD:
+        {
+            int fd = (int)tf->rdi;
+            void *buf = (void *)tf->rsi;
+            uint64_t size = tf->rdx;
+            tf->rax = vfs_read(fd, buf, size);
+            return tf;
+        }
+
+        case SYS_FWRITE:
+        {
+            int fd = (int)tf->rdi;
+            const void *buf = (const void *)tf->rsi;
+            uint64_t size = tf->rdx;
+            tf->rax = vfs_write(fd, buf, size);
+            return tf;
+        }
+
+        case SYS_READDIR:
+        {
+            int fd = (int)tf->rdi;
+            uint32_t index = (uint32_t)tf->rsi;
+            struct dirent *out = (struct dirent *)tf->rdx;
+            tf->rax = vfs_readdir(fd, index, out);
+            return tf;
+        }
+
+        case SYS_CHDIR:
+        {
+            char path[128];
+            if (copy_user_string(path, sizeof(path), tf->rdi) != 0)
+            {
+                tf->rax = (uint64_t)-1;
+                return tf;
+            }
+            tf->rax = ext2_chdir(path);
+            return tf;
+        }
+
+        case SYS_GETCWD:
+        {
+            char *buf = (char *)tf->rdi;
+            uint64_t size = tf->rsi;
+            tf->rax = ext2_getcwd(buf, size);
+            return tf;
+        }
+
+        case SYS_YIELD:
+            tf->rax = 0;
+            sched_yield();
+            return tf;
 
         default:
             tf->rax = (uint64_t)-1;

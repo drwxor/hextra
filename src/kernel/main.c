@@ -13,8 +13,12 @@
 #include "kernel/elf.h"
 #include "kernel/ata.h"
 #include "kernel/fs/ext2.h"
+#include "kernel/fs/vfs.h"
+#include "kernel/fs/gpt.h"
 #include "kernel/shell/shell.h"
 #include "kernel/process.h"
+#include "kernel/sched.h"
+#include "kernel/pit.h"
 
 __attribute__((used, section(".limine_requests")))
 static volatile uint64_t limine_requests_start_marker[] = LIMINE_REQUESTS_START_MARKER;
@@ -103,6 +107,12 @@ kmain(void)
     idt_init();
     render_printf("idt "); render_printf_colored("[OK]\n", GREEN_COLOR);
 
+    pit_init();
+    render_printf("pit "); render_printf_colored("[OK]\n", GREEN_COLOR);
+
+    sched_init();
+    render_printf("sched "); render_printf_colored("[OK]\n", GREEN_COLOR);
+
     uint64_t hhdm = 0;
     if (hhdm_request.response != 0)
         hhdm = hhdm_request.response->offset;
@@ -141,10 +151,21 @@ kmain(void)
 
     if (ata_init() == 0)
     {
-        struct ext2_fs *fs = ext2_mount(EXT2_START_LBA);
+        uint32_t ext2_lba = gpt_find_ext2();
+        if (ext2_lba == 0)
+        {
+            render_printf("gpt: falling back to EXT2_START_LBA\n");
+            ext2_lba = EXT2_START_LBA;
+        }
+        struct ext2_fs *fs = ext2_mount(ext2_lba);
         if (fs)
         {
             rootfs = fs;
+
+            vfs_init();
+            struct vfs_node *root = ext2_vfs_node(fs, 2);
+            if (root)
+                vfs_set_root(root);
 
             void *file_buf = 0;
             uint64_t file_size = ext2_read_file(fs, "/bin/init", &file_buf);

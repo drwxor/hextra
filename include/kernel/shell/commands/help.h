@@ -15,6 +15,8 @@ shell_command_help(void)
     user_puts("  printf   print text without making new line\n");
     user_puts("  exit     leave the shell\n");
     user_puts("  mem      show free physical pages\n");
+    user_puts("  ls       list directory contents\n");
+    user_puts("  cd       change directory\n");
 }
 
 #endif

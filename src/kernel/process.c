@@ -42,11 +42,16 @@ process_create(void)
         p->brk_start = 0;
 
         p->kstack = process_stacks[i];
-        p->kstack_top =
-        (uint64_t)p->kstack + KSTACK_SIZE;
+        p->kstack_top = (uint64_t)p->kstack + KSTACK_SIZE;
 
         p->tf = 0;
         p->exit_status = 0;
+
+        for (int i = 0; i < MAX_FDS; i++)
+            p->fds[i] = 0;
+
+        p->cwd[0] = '/';
+        p->cwd[1] = 0;
 
         return p;
     }
@@ -59,6 +64,15 @@ process_discard(struct process *p)
 {
     if (!p)
         return;
+
+    for (int i = 0; i < MAX_FDS; i++)
+    {
+        if (p->fds[i])
+        {
+            vfs_close(i);
+            p->fds[i] = 0;
+        }
+    }
 
     p->state = PROC_UNUSED;
 }
@@ -82,6 +96,12 @@ process_find(int pid)
     }
 
     return 0;
+}
+
+struct process *
+process_get_table(void)
+{
+    return processes;
 }
 
 int
@@ -108,33 +128,26 @@ process_bootstrap(uint64_t pml4, uint64_t brk)
 }
 
 void
-process_make_user(
-    struct process *p,
-    uint64_t entry,
-    uint64_t user_stack
-)
+process_make_user(struct process *p, uint64_t entry, uint64_t user_stack)
 {
     struct trapframe *tf;
 
-    tf = (struct trapframe *)
-    (p->kstack_top - sizeof(struct trapframe));
+    tf = (struct trapframe *)(p->kstack_top - sizeof(struct trapframe));
 
     uint64_t *words = (uint64_t *)tf;
 
-    for (uint64_t i = 0;
-         i < sizeof(struct trapframe) / sizeof(uint64_t);
-    i++)
-         {
-             words[i] = 0;
-         }
+    for (uint64_t i = 0; i < sizeof(struct trapframe) / sizeof(uint64_t); i++)
+    {
+        words[i] = 0;
+    }
 
-         tf->rip = entry;
-         tf->cs = USER_CS;
-         tf->rflags = 0x202;
-         tf->rsp = user_stack;
-         tf->ss = USER_DS;
+    tf->rip = entry;
+    tf->cs = USER_CS;
+    tf->rflags = 0x202;
+    tf->rsp = user_stack;
+    tf->ss = USER_DS;
 
-         p->tf = tf;
+    p->tf = tf;
 }
 
 struct trapframe *

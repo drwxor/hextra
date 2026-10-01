@@ -13,6 +13,14 @@
 #define SYS_EXEC    59
 #define SYS_EXIT    60
 #define SYS_WAIT    61
+#define SYS_OPEN    62
+#define SYS_CLOSE   63
+#define SYS_FREAD   64
+#define SYS_FWRITE  65
+#define SYS_READDIR 66
+#define SYS_CHDIR   67
+#define SYS_GETCWD  68
+#define SYS_YIELD   69
 
 long syscall0(long n);
 long syscall1(long n, long a1);

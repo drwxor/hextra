@@ -26,5 +26,6 @@ void idt_init(void);
 void idt_set_gate(uint8_t vector, uint64_t handler, uint8_t flags);
 
 void isr_syscall(void);
+void isr_timer(void);
 
 #endif

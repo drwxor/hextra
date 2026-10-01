@@ -5,8 +5,6 @@
 
 #include <stdint.h>
 
-#include "kernel/process.h"
-
 #define SYS_READ    0
 #define SYS_WRITE   1
 #define SYS_CLEAR   2
@@ -17,9 +15,18 @@
 #define SYS_EXEC    59
 #define SYS_EXIT    60
 #define SYS_WAIT    61
+#define SYS_OPEN    62
+#define SYS_CLOSE   63
+#define SYS_FREAD   64
+#define SYS_FWRITE  65
+#define SYS_READDIR 66
+#define SYS_CHDIR   67
+#define SYS_GETCWD  68
+#define SYS_YIELD   69
 
 #define USER_LIMIT 0x00007FFFFFFFF000ULL
-#define EXT2_START_LBA 65536
+
+struct trapframe;
 
 struct trapframe *sys_exec(struct trapframe *tf, const char *user_path);
 

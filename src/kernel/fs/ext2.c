@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
 #include "kernel/fs/ext2.h"
+#include "kernel/fs/vfs.h"
 #include "kernel/ata.h"
 #include "kernel/heap.h"
 #include "kernel/renderer.h"
 #include "kernel/pmm.h"
+#include "kernel/process.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -386,4 +388,303 @@ ext2_unmount(struct ext2_fs *fs)
 {
     if (fs)
         kfree(fs);
+}
+
+struct ext2_vfs_data {
+    struct ext2_fs *fs;
+    uint32_t ino;
+};
+
+static int
+ext2_vfs_read(struct vfs_node *node, uint64_t offset, void *buf, size_t size)
+{
+    if (!node || !node->data || !buf || size == 0)
+        return -1;
+
+    struct ext2_vfs_data *vfs_data = (struct ext2_vfs_data *)node->data;
+    struct ext2_fs *fs = vfs_data->fs;
+    uint32_t ino = vfs_data->ino;
+
+    struct ext2_inode inode;
+    if (read_inode(fs, ino, &inode) != 0)
+        return -1;
+
+    if (offset >= inode.i_size)
+        return 0;
+
+    if (offset + size > inode.i_size)
+        size = inode.i_size - offset;
+
+    if (read_inode_data(fs, &inode, (uint32_t)offset, (uint32_t)size, buf) != 0)
+        return -1;
+
+    return (int)size;
+}
+
+static int
+ext2_vfs_write(struct vfs_node *node, uint64_t offset, const void *buf, size_t size)
+{
+    (void)node;
+    (void)offset;
+    (void)buf;
+    (void)size;
+    return -1;
+}
+
+static int
+ext2_vfs_close(struct vfs_node *node)
+{
+    (void)node;
+    return 0;
+}
+
+static int
+ext2_vfs_readdir(struct vfs_node *node, uint32_t index, struct dirent *out)
+{
+    if (!node || !node->data || !out)
+        return -1;
+
+    struct ext2_vfs_data *vfs_data = (struct ext2_vfs_data *)node->data;
+    struct ext2_fs *fs = vfs_data->fs;
+    uint32_t ino = vfs_data->ino;
+
+    struct ext2_inode inode;
+    if (read_inode(fs, ino, &inode) != 0)
+        return -1;
+
+    if (!(inode.i_mode & EXT2_S_IFDIR))
+        return -1;
+
+    uint32_t size = inode.i_size;
+    uint8_t *buf = kmalloc(size);
+    if (!buf)
+        return -1;
+
+    if (read_inode_data(fs, &inode, 0, size, buf) != 0)
+    {
+        kfree(buf);
+        return -1;
+    }
+
+    uint32_t pos = 0;
+    uint32_t current_index = 0;
+
+    while (pos < size)
+    {
+        struct ext2_dirent *de = (struct ext2_dirent *)(buf + pos);
+        if (de->rec_len == 0)
+            break;
+
+        if (de->inode != 0)
+        {
+            if (current_index == index)
+            {
+                out->d_ino = de->inode;
+                uint8_t name_len = de->name_len;
+                if (name_len > 255)
+                    name_len = 255;
+                for (uint8_t i = 0; i < name_len; i++)
+                    out->d_name[i] = de->name[i];
+                out->d_name[name_len] = 0;
+                kfree(buf);
+                return 0;
+            }
+            current_index++;
+        }
+
+        pos += de->rec_len;
+    }
+
+    kfree(buf);
+    return -1;
+}
+
+static struct file_ops ext2_file_ops = {
+    .open = 0,
+    .close = ext2_vfs_close,
+    .read = ext2_vfs_read,
+    .write = ext2_vfs_write,
+    .readdir = ext2_vfs_readdir
+};
+
+struct vfs_node *
+ext2_vfs_node(struct ext2_fs *fs, uint32_t ino)
+{
+    if (!fs || ino == 0)
+        return 0;
+
+    struct ext2_inode inode;
+    if (read_inode(fs, ino, &inode) != 0)
+        return 0;
+
+    struct ext2_vfs_data *vfs_data = kmalloc(sizeof(*vfs_data));
+    if (!vfs_data)
+        return 0;
+
+    vfs_data->fs = fs;
+    vfs_data->ino = ino;
+
+    struct vfs_node *node = kmalloc(sizeof(*node));
+    if (!node)
+    {
+        kfree(vfs_data);
+        return 0;
+    }
+
+    node->flags = (inode.i_mode & 0xF000) == EXT2_S_IFDIR ? S_IFDIR : S_IFREG;
+    node->size = inode.i_size;
+    node->ops = &ext2_file_ops;
+    node->data = vfs_data;
+
+    return node;
+}
+
+static
+int
+ext2_path_resolve(const char *path, struct ext2_inode *out_inode)
+{
+    if (!path || !out_inode || !rootfs)
+        return -1;
+
+    struct ext2_inode inode;
+    if (path[0] == '/') {
+        if (read_inode(rootfs, 2, &inode) != 0)
+            return -1;
+    } else {
+        struct process *proc = process_current();
+        if (!proc)
+            return -1;
+
+        if (proc->cwd[0] == '/') {
+            if (read_inode(rootfs, 2, &inode) != 0)
+                return -1;
+            const char *p = proc->cwd + 1;
+            char component[64];
+            while (*p) {
+                uint32_t i = 0;
+                while (*p && *p != '/' && i < sizeof(component) - 1)
+                    component[i++] = *p++;
+                component[i] = 0;
+                if (*p == '/')
+                    p++;
+                if (component[0] == 0)
+                    continue;
+                uint32_t next = lookup_in_dir(rootfs, &inode, component);
+                if (next == 0)
+                    return -1;
+                if (read_inode(rootfs, next, &inode) != 0)
+                    return -1;
+            }
+        } else {
+            return -1;
+        }
+    }
+
+    const char *p = path;
+    if (path[0] == '/')
+        p++;
+
+    char component[64];
+
+    while (*p)
+    {
+        uint32_t i = 0;
+        while (*p && *p != '/' && i < sizeof(component) - 1)
+            component[i++] = *p++;
+        component[i] = 0;
+        if (*p == '/')
+            p++;
+
+        if (component[0] == 0)
+            continue;
+
+        if (component[0] == '.' && component[1] == 0)
+            continue;
+
+        if (component[0] == '.' && component[1] == '.' && component[2] == 0)
+        {
+            uint32_t parent = lookup_in_dir(rootfs, &inode, "..");
+            if (parent == 0)
+                return -1;
+            if (read_inode(rootfs, parent, &inode) != 0)
+                return -1;
+            continue;
+        }
+
+        uint32_t next = lookup_in_dir(rootfs, &inode, component);
+        if (next == 0)
+            return -1;
+        if (read_inode(rootfs, next, &inode) != 0)
+            return -1;
+    }
+
+    *out_inode = inode;
+    return 0;
+}
+
+int
+ext2_chdir(const char *path)
+{
+    if (!path)
+        return -1;
+
+    struct ext2_inode inode;
+    if (ext2_path_resolve(path, &inode) != 0)
+        return -1;
+
+    if (!(inode.i_mode & EXT2_S_IFDIR))
+        return -1;
+
+    struct process *proc = process_current();
+    if (!proc)
+        return -1;
+
+    if (path[0] == '/') {
+        uint32_t i = 0;
+        while (path[i] && i < MAX_PATH - 1)
+        {
+            proc->cwd[i] = path[i];
+            i++;
+        }
+        proc->cwd[i] = 0;
+    } else {
+        uint32_t len = 0;
+        while (proc->cwd[len])
+            len++;
+
+        if (len > 0 && proc->cwd[len - 1] != '/')
+        {
+            proc->cwd[len++] = '/';
+        }
+
+        uint32_t i = 0;
+        while (path[i] && len < MAX_PATH - 1)
+        {
+            proc->cwd[len++] = path[i++];
+        }
+        proc->cwd[len] = 0;
+    }
+
+    return 0;
+}
+
+int
+ext2_getcwd(char *buf, uint64_t size)
+{
+    if (!buf || size == 0)
+        return -1;
+
+    struct process *proc = process_current();
+    if (!proc)
+        return -1;
+
+    uint32_t i = 0;
+    while (proc->cwd[i] && i < size - 1)
+    {
+        buf[i] = proc->cwd[i];
+        i++;
+    }
+    buf[i] = 0;
+
+    return 0;
 }

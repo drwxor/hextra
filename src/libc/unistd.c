@@ -139,3 +139,9 @@ wait(pid_t pid)
 
     return (int)ret;
 }
+
+void
+yield(void)
+{
+    syscall0(SYS_YIELD);
+}

@@ -13,14 +13,21 @@ Current functionality includes:
 * Limine-based UEFI boot
 * x86_64 kernel
 * Framebuffer output
-* Built-in bitmap text renderer
+* Text renderer
+* Ext2 read-only file system
+* Basic Libc
 * PS/2 keyboard input
-* Interactive kernel shell
+* Userland
+* kernel/userland shell
 * Basic shell commands
+* ELF Loading
+* VFS
+* Scheluder
+* GPT Scanning
 * Ring-3
 * Basic serial/debug support
 
-The shell currently runs in the kernel.
+The shell currently can run from the kernel and userland.
 
 ## Building
 
@@ -42,23 +49,9 @@ build/uorix.elf
 
 Uorix is currently tested with QEMU and OVMF.
 
-The project includes a small helper script for building, replacing the kernel in the disk image, and starting QEMU.
+The project includes helper scripts for building, replacing the kernel in the disk image, generating ISO image, and starting QEMU.
 
-The helper script is intended for local development and testing only. It contains environment-specific paths and commands and is not currently prepared for use on other systems without modification.
-
-## Shell
-
-~~The current shell is built directly into the kernel.~~
-###### its quite not from now on
-
-## Design
-
-Uorix currently favors a small and direct design.
-
-~~There is no userspace/process separation yet. Everything currently executes in the kernel address space, including the shell.~~ <br />
-Ring-3 was implemented
-
-This is intentional for the current stage of development. More advanced process isolation may be added later.
+Helper can be ran via [uorix-tools](https://github.com/drwxor/uorix-tools)
 
 ## Toolchain
 

@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#include "kernel/fs/vfs.h"
+
 #define MAX_PROCS 16
 #define KSTACK_SIZE 16384
 
@@ -59,6 +61,9 @@ struct process
     struct trapframe *tf;
 
     int exit_status;
+
+    struct file *fds[MAX_FDS];
+    char cwd[MAX_PATH];
 };
 
 void process_init(void);
@@ -68,6 +73,7 @@ void process_discard(struct process *p);
 
 struct process *process_current(void);
 struct process *process_find(int pid);
+struct process *process_get_table(void);
 
 int process_bootstrap(uint64_t pml4, uint64_t brk);
 

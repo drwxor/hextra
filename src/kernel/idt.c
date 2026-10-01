@@ -25,6 +25,7 @@ idt_init(void)
 {
     for (int i = 0; i < 256; i++)
         idt_set_gate(i, (uint64_t)isr_null, 0x8E);
+    idt_set_gate(0x20, (uint64_t)isr_timer, 0x8E);
     idt_set_gate(0x80, (uint64_t)isr_syscall, 0xEE);
 
     idtr.limit = sizeof(idt) - 1;

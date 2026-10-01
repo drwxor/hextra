@@ -3,6 +3,8 @@
 #include "kernel/shell/shell.h"
 
 #include "kernel/user/user.h"
+#include "kernel/fs/vfs.h"
+#include "kernel/fs/ext2.h"
 
 #include "kernel/shell/commands/help.h"
 #include "kernel/shell/commands/exit.h"
@@ -37,6 +39,48 @@ line_clear(void)
 
 static
 void
+shell_command_ls(void)
+{
+    int fd = vfs_open("/", O_RDONLY);
+    if (fd < 0)
+    {
+        user_puts("ls: cannot open directory\n");
+        return;
+    }
+
+    struct dirent de;
+    uint32_t index = 0;
+
+    while (vfs_readdir(fd, index, &de) == 0)
+    {
+        user_puts(de.d_name);
+        user_putc('\n');
+        index++;
+    }
+
+    vfs_close(fd);
+}
+
+static
+void
+shell_command_cd(const char *path)
+{
+    if (!rootfs)
+    {
+        user_puts("cd: no filesystem mounted\n");
+        return;
+    }
+
+    if (ext2_chdir(path) != 0)
+    {
+        user_puts("cd: cannot change directory: ");
+        user_puts(path);
+        user_putc('\n');
+    }
+}
+
+static
+void
 shell_execute(void)
 {
     if (line_length == 0)
@@ -57,6 +101,21 @@ shell_execute(void)
     if (strcmp_local(line, "mem") == 0)
     {
         shell_command_mem();
+        return;
+    }
+
+    if (strcmp_local(line, "ls") == 0)
+    {
+        shell_command_ls();
+        return;
+    }
+
+    if (line_length >= 3 &&
+        line[0] == 'c' &&
+        line[1] == 'd' &&
+        line[2] == ' ')
+    {
+        shell_command_cd(line + 3);
         return;
     }
 

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <sys/dirent.h>
 
 static const char *logo[] = {
     "u u  oo  rr  i x x",
@@ -31,6 +32,8 @@ cmd_help(void)
     printf("\tfetch    fetch current system status\n");
     printf("\tmem      show free physical pages\n");
     printf("\tmalloc   exercise libc malloc\n");
+    printf("\tls       list directory contents\n");
+    printf("\tcd       change directory\n");
     printf("\texit     leave the shell\n");
 }
 
@@ -40,6 +43,39 @@ cmd_mem(void)
 {
     long pages = syscall0(SYS_MEMINFO);
     printf("free pages: %d\n", (int)pages);
+}
+
+static
+void
+cmd_ls(void)
+{
+    int fd = syscall2(SYS_OPEN, (long)"/", O_RDONLY);
+    if (fd < 0)
+    {
+        printf("ls: cannot open directory\n");
+        return;
+    }
+
+    struct dirent de;
+    uint32_t index = 0;
+
+    while (syscall3(SYS_READDIR, fd, index, (long)&de) == 0)
+    {
+        printf("%s\n", de.d_name);
+        index++;
+    }
+
+    syscall1(SYS_CLOSE, fd);
+}
+
+static
+void
+cmd_cd(const char *path)
+{
+    if (syscall1(SYS_CHDIR, (long)path) != 0)
+    {
+        printf("cd: cannot change directory: %s\n", path);
+    }
 }
 
 static
@@ -125,6 +161,8 @@ main(void)
                 cmd_malloc();
             else if (strcmp(line, "fetch") == 0)
                 cmd_fetch();
+            else if (strcmp(line, "ls") == 0)
+                cmd_ls();
             else if (strcmp(line, "exit") == 0)
             {
                 printf("bye\n");
@@ -151,6 +189,8 @@ main(void)
             {
                 exec(line + 5);
             }
+            else if (strncmp(line, "cd ", 3) == 0)
+                cmd_cd(line + 3);
             else
                 printf("uorix: command not found: %s\n", line);
 

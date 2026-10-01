@@ -23,5 +23,6 @@ pid_t getpid(void);
 unsigned int sleep(unsigned int seconds);
 pid_t spawn(const char *path);
 int wait(pid_t pid);
+void yield(void);
 
 #endif
