@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_PMM_H
-#define UORIX_PMM_H
+#ifndef HEXTRA_PMM_H
+#define HEXTRA_PMM_H
 
 #include <stdint.h>
 #include "kernel/limine.h"

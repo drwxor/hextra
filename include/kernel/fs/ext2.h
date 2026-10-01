@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_EXT2_H
-#define UORIX_EXT2_H
+#ifndef HEXTRA_EXT2_H
+#define HEXTRA_EXT2_H
 
 #include <stdint.h>
 

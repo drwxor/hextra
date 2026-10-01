@@ -1,12 +1,12 @@
-# Uorix
+# Hextra
 
-Uorix is a small experimental Unix-like operating system for x86_64.
+Hextra is a small experimental Unix-like operating system for x86_64.
 
 It is built from scratch in C with the goal of being simple, understandable, and fun to work on.
 
 ## Status
 
-Uorix is currently in early kernel development.
+Hextra is currently in early kernel development.
 
 Current functionality includes:
 
@@ -31,7 +31,7 @@ The shell currently can run from the kernel and userland.
 
 ## Building
 
-Uorix uses [kage](https://github.com/drwxor/kage).
+Hextra uses [kage](https://github.com/drwxor/kage).
 
 Build the kernel with:
 
@@ -42,12 +42,12 @@ kage
 The resulting kernel is:
 
 ```text
-build/uorix.elf
+build/hextra.elf
 ```
 
 ## Running
 
-Uorix is currently tested with QEMU and OVMF.
+Hextra is currently tested with QEMU and OVMF.
 
 The project includes helper scripts for building, replacing the kernel in the disk image, generating ISO image, and starting QEMU.
 
@@ -67,7 +67,7 @@ Current development uses:
 
 ## License
 
-Uorix is free software distributed under the GNU General Public License, version 3.
+Hextra is free software distributed under the GNU General Public License, version 3.
 
 See `LICENSE` for the full license text.
 
@@ -75,7 +75,7 @@ Individual files contain SPDX license identifiers where appropriate.
 
 ## Contributing
 
-Uorix is primarily a personal experimental operating-system project.
+Hextra is primarily a personal experimental operating-system project.
 
 Code should stay small, explicit, and easy to understand.
 
@@ -83,4 +83,4 @@ Avoid unnecessary dependencies and complexity.
 
 ## Disclaimer
 
-Uorix is experimental software and is not intended for production use.
+Hextra is experimental software and is not intended for production use.

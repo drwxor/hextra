@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_RENDERER_H
-#define UORIX_RENDERER_H
+#ifndef HEXTRA_RENDERER_H
+#define HEXTRA_RENDERER_H
 
 #include <stdint.h>
 

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_HEAP_H
-#define UORIX_HEAP_H
+#ifndef HEXTRA_HEAP_H
+#define HEXTRA_HEAP_H
 
 #include <stdint.h>
 

@@ -11,7 +11,7 @@ main(void)
 {
     printf("userspace "); printf_colored("[OK]\n", GREEN_COLOR);
 
-    printf_colored("welcome to uorix!\n", CYAN_COLOR);
+    printf_colored("welcome to hextra!\n", CYAN_COLOR);
 
     printf_colored("entering the shell...\n", WHITE_COLOR);
 

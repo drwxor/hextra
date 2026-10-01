@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_LIMINE_H
-#define UORIX_LIMINE_H 1
+#ifndef HEXTRA_LIMINE_H
+#define HEXTRA_LIMINE_H 1
 
 #include <stdint.h>
 

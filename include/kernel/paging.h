@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_PAGING_H
-#define UORIX_PAGING_H
+#ifndef HEXTRA_PAGING_H
+#define HEXTRA_PAGING_H
 
 #include <stdint.h>
 

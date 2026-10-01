@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_SHELL_HELP_H
-#define UORIX_SHELL_HELP_H
+#ifndef HEXTRA_SHELL_HELP_H
+#define HEXTRA_SHELL_HELP_H
 
 #include "kernel/user/user.h"
 

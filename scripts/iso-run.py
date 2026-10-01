@@ -6,7 +6,7 @@ def start():
     print("==> Starting QEMU...")
 
     codefd = os.environ.get("CODEFD", "/usr/share/OVMF/OVMF_CODE.fd")
-    iso = os.environ.get("ISO", "build/uorix.iso")
+    iso = os.environ.get("ISO", "build/hextra.iso")
 
     cmd = [
         "qemu-system-x86_64",

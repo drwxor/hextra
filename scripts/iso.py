@@ -10,12 +10,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_KERNEL = ROOT / "build" / "uorix.elf"
+DEFAULT_KERNEL = ROOT / "build" / "hextra.elf"
 DEFAULT_USERLAND = ROOT / "build" / "userland"
 DEFAULT_SHELL_DIR = DEFAULT_USERLAND / "shell"
 DEFAULT_INIT = DEFAULT_USERLAND / "init.elf"
 DEFAULT_ISO_ROOT = ROOT / "build" / "iso"
-DEFAULT_OUTPUT = ROOT / "build" / "uorix.iso"
+DEFAULT_OUTPUT = ROOT / "build" / "hextra.iso"
 
 LIMINE_FILES = (
     "limine-bios.sys",
@@ -97,7 +97,7 @@ def find_limine_assets(explicit: Path | None) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build a BIOS/UEFI hybrid Uorix ISO from build/uorix.elf."
+        description="Build a BIOS/UEFI hybrid Hextra ISO from build/hextra.elf."
     )
     parser.add_argument(
         "--limine",
@@ -108,7 +108,7 @@ def parse_args() -> argparse.Namespace:
         "--kernel",
         type=Path,
         default=DEFAULT_KERNEL,
-        help="kernel ELF (default: build/uorix.elf)",
+        help="kernel ELF (default: build/hextra.elf)",
     )
     parser.add_argument(
         "--shell-dir",
@@ -129,7 +129,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
-        help="output ISO path (default: build/uorix.iso)",
+        help="output ISO path (default: build/hextra.iso)",
     )
     parser.add_argument(
         "--iso-root",
@@ -179,7 +179,7 @@ def main() -> int:
     for parent in (output.parent, iso_root.parent):
         parent.mkdir(parents=True, exist_ok=True)
 
-    print("[ISO] Building Uorix ISO...")
+    print("[ISO] Building Hextra ISO...")
     print(f"[ISO] Kernel: {kernel}")
     print(f"[ISO] Init: {init_elf}")
     print(f"[ISO] Shell tree: {shell_dir}")
@@ -196,7 +196,7 @@ def main() -> int:
     limine_boot_dir.mkdir(parents=True)
     efi_boot_dir.mkdir(parents=True)
 
-    shutil.copy2(kernel, boot_dir / "uorix.elf")
+    shutil.copy2(kernel, boot_dir / "hextra.elf")
     shutil.copy2(init_elf, boot_dir / "init.elf")
 
     # Copy the entire shell userland tree recursively. This deliberately does
@@ -212,15 +212,12 @@ def main() -> int:
         shutil.copy2(limine_dir / name, limine_boot_dir / name)
     shutil.copy2(limine_dir / "BOOTX64.EFI", efi_boot_dir / "BOOTX64.EFI")
 
-    # Uorix's current kernel tries the ATA/ext2 rootfs first. An optical ISO
-    # does not provide that rootfs, so put the shell ELF first in the Limine
-    # module list. main.c uses module[0] as its fallback userspace image.
     config = [
         "timeout: 5",
         "",
-        "/Uorix",
+        "/Hextra",
         "    protocol: limine",
-        "    path: boot():/boot/uorix.elf",
+        "    path: boot():/boot/hextra.elf",
     ]
 
     if use_shell_module:

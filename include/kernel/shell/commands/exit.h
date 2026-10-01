@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_SHELL_EXIT_H
-#define UORIX_SHELL_EXIT_H
+#ifndef HEXTRA_SHELL_EXIT_H
+#define HEXTRA_SHELL_EXIT_H
 
 #include "kernel/user/user.h"
 #include "kernel/syscall.h"

@@ -54,14 +54,14 @@ def replace():
 
     rootrun = os.environ.get("RUN_AS_ROOT", "run0")
 
-    kernel = "build/uorix.elf"
+    kernel = "build/hextra.elf"
     init = "build/userland/init.elf"
 
     bootx64 = os.environ.get("BOOTX64", "/usr/share/limine/BOOTX64.EFI")
 
-    img = "image/uorix.img"
-    mnt = "/tmp/uorix-mnt"
-    rt = "/tmp/uorix-root"
+    img = "image/hextra.img"
+    mnt = "/tmp/hextra-mnt"
+    rt = "/tmp/hextra-root"
 
     os.makedirs("image", exist_ok=True)
 
@@ -110,7 +110,7 @@ def replace():
 
         run(rootrun, "cp", bootx64, f"{mnt}/EFI/BOOT/BOOTX64.EFI")
 
-        run(rootrun, "cp", kernel, f"{mnt}/boot/uorix.elf")
+        run(rootrun, "cp", kernel, f"{mnt}/boot/hextra.elf")
 
         run(rootrun, "mount", root, rt)
         mounted_root = True
@@ -123,15 +123,15 @@ def replace():
         run(rootrun, "cp", "build/userland/shell/yes.elf", f"{rt}/bin/yes")
         run(rootrun, "cp", "build/userland/shell/libctest.elf", f"{rt}/bin/libctest")
 
-        conf_path = "/tmp/uorix-limine.conf"
+        conf_path = "/tmp/hextra-limine.conf"
 
         with open(conf_path, "w") as f:
             f.write(
                 "timeout: 1\n"
                 "\n"
-                "/Uorix\n"
+                "/Hextra\n"
                 "    protocol: limine\n"
-                "    path: boot():/boot/uorix.elf\n"
+                "    path: boot():/boot/hextra.elf\n"
             )
 
         run(rootrun, "cp", conf_path, f"{mnt}/limine.conf")

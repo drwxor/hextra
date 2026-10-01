@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_SYSCALL_H
-#define UORIX_SYSCALL_H
+#ifndef HEXTRA_SYSCALL_H
+#define HEXTRA_SYSCALL_H
 
 #include <stdint.h>
 

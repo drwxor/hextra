@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_IO_H
-#define UORIX_IO_H
+#ifndef HEXTRA_IO_H
+#define HEXTRA_IO_H
 
 #include <stdint.h>
 

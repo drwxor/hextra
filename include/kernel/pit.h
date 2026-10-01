@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_PIT_H
-#define UORIX_PIT_H
+#ifndef HEXTRA_PIT_H
+#define HEXTRA_PIT_H
 
 #include <stdint.h>
 

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_SCHED_H
-#define UORIX_SCHED_H
+#ifndef HEXTRA_SCHED_H
+#define HEXTRA_SCHED_H
 
 #include <stdint.h>
 

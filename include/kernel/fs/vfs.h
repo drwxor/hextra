@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_VFS_H
-#define UORIX_VFS_H
+#ifndef HEXTRA_VFS_H
+#define HEXTRA_VFS_H
 
 #include <stdint.h>
 #include <stddef.h>

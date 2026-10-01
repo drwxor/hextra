@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_ATA_H
-#define UORIX_ATA_H
+#ifndef HEXTRA_ATA_H
+#define HEXTRA_ATA_H
 
 #include <stdint.h>
 

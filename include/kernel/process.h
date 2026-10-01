@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef UORIX_PROCESS_H
-#define UORIX_PROCESS_H
+#ifndef HEXTRA_PROCESS_H
+#define HEXTRA_PROCESS_H
 
 #include <stdint.h>
 

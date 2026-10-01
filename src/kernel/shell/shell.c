@@ -144,7 +144,7 @@ shell_execute(void)
         return;
     }
 
-    user_puts("uorix: command not found: ");
+    user_puts("hextra: command not found: ");
     user_puts(line);
     user_putc('\n');
 }

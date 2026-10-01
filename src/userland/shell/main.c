@@ -8,10 +8,11 @@
 #include <sys/dirent.h>
 
 static const char *logo[] = {
-    "u u  oo  rr  i x x",
-    "u u o  o r r i  x ",
-    "u u o  o rr  i x x",
-    "uuu  oo  r r      ",
+    "H EEE X XTTTRRA A",
+    "H E    X  TR RA A",
+    "HHEE   X  TRR AAA",
+    "H E    X  TR RA A",
+    "H EEE X X TR RA A",
     0
 };
 
@@ -104,15 +105,15 @@ cmd_fetch(void)
         printf(logo[i]);
 
         if (i == 0)
-            printf("\tuorix x86_64");
-
-        if (i == 1)
-            printf("\tkernel: uorix");
+            printf("\thextra x86_64");
 
         if (i == 2)
-            printf("\tshell: uorix");
+            printf("\tkernel: hextra");
 
         if (i == 3)
+            printf("\tshell: hextra shell");
+
+        if (i == 4)
             printf("\tbootloader: limine");
 
         printf("\n");
@@ -154,7 +155,7 @@ main(void)
             else if (strcmp(line, "clear") == 0)
                 syscall0(SYS_CLEAR);
             else if (strcmp(line, "uname") == 0)
-                printf("uorix x86_64\n");
+                printf("hextra x86_64\n");
             else if (strcmp(line, "mem") == 0)
                 cmd_mem();
             else if (strcmp(line, "malloc") == 0)
@@ -178,7 +179,7 @@ main(void)
 
                 if (pid < 0)
                 {
-                    printf("uorix: failed to spawn: %s\n", line + 4);
+                    printf("hextra: failed to spawn: %s\n", line + 4);
                 }
                 else
                 {
@@ -192,7 +193,7 @@ main(void)
             else if (strncmp(line, "cd ", 3) == 0)
                 cmd_cd(line + 3);
             else
-                printf("uorix: command not found: %s\n", line);
+                printf("hextra: command not found: %s\n", line);
 
             len = 0;
             line[0] = 0;
