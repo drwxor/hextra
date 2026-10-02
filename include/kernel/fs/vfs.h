@@ -9,17 +9,18 @@
 #define MAX_FDS 16
 #define MAX_PATH 256
 
-#define O_RDONLY  0x0000
-#define O_WRONLY  0x0001
-#define O_RDWR    0x0002
-#define O_CREAT   0x0040
+#define O_RDONLY 0x0000
+#define O_WRONLY 0x0001
+#define O_RDWR 0x0002
+#define O_CREAT 0x0040
 
-#define S_IFMT   0xF000
-#define S_IFREG  0x8000
-#define S_IFDIR  0x4000
+#define S_IFMT 0xF000
+#define S_IFREG 0x8000
+#define S_IFDIR 0x4000
 
 struct vfs_node;
 struct file;
+struct ext2_fs;
 
 struct dirent {
     uint32_t d_ino;
@@ -51,6 +52,7 @@ struct file {
 
 void vfs_init(void);
 int vfs_set_root(struct vfs_node *node);
+int vfs_set_root_fs(struct ext2_fs *fs);
 int vfs_open(const char *path, int flags);
 int vfs_close(int fd);
 int vfs_read(int fd, void *buf, size_t size);

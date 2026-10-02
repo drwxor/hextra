@@ -15,19 +15,20 @@
 #define USER_STACK_PAGES 4
 
 void paging_init(uint64_t hhdm_offset);
-void paging_allow_user_access(void);
+void paging_load_cr3(uint64_t pml4_phys);
 
 int paging_map_page(uint64_t virt, uint64_t phys, uint64_t flags);
+int paging_map_page_in(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t flags);
 void paging_unmap_page(uint64_t virt);
 
-int paging_map_page_in(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t flags);
-
 uint64_t paging_create_user_as(uint64_t *user_stack_top);
-
-void paging_load_cr3(uint64_t pml4_phys);
+void paging_free_user_as(uint64_t pml4_phys);
 
 uint64_t paging_hhdm(void);
 void *paging_phys_to_virt(uint64_t phys);
 uint64_t paging_virt_to_phys(uint64_t virt);
+
+struct trapframe;
+struct trapframe *page_fault_handler(struct trapframe *tf, uint64_t fault_addr, uint64_t error_code);
 
 #endif

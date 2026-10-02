@@ -5,16 +5,23 @@
 #include "kernel/heap.h"
 #include "kernel/renderer.h"
 #include "kernel/process.h"
+#include "kernel/string.h"
 
 #include <stdint.h>
 #include <stddef.h>
 
 static struct vfs_node *root_node = 0;
+static struct ext2_fs *root_fs = 0;
+
+static struct vfs_node *vfs_walk(struct vfs_node *start, const char *path);
+static struct vfs_node *vfs_get_child(struct vfs_node *parent, const char *name);
+static struct vfs_node *vfs_get_parent(struct vfs_node *node);
 
 void
 vfs_init(void)
 {
     root_node = 0;
+    root_fs = 0;
 }
 
 int
@@ -24,12 +31,188 @@ vfs_set_root(struct vfs_node *node)
     return 0;
 }
 
+int
+vfs_set_root_fs(struct ext2_fs *fs)
+{
+    root_fs = fs;
+    if (fs)
+    {
+        struct vfs_node *root = ext2_vfs_node(fs, 2);
+        if (root)
+            vfs_set_root(root);
+    }
+    return 0;
+}
+
 static struct vfs_node *
 resolve_path(const char *path)
 {
-    if (root_node)
-        return root_node;
+    if (!path || !root_node || !root_fs)
+        return 0;
+
+    struct vfs_node *current = root_node;
+    struct process *proc = process_current();
+
+    if (path[0] == '/')
+    {
+        current = root_node;
+        path++;
+    }
+    else if (proc && proc->cwd[0])
+    {
+        current = vfs_walk(root_node, proc->cwd);
+        if (!current)
+            current = root_node;
+    }
+
+    if (!current)
+        return 0;
+
+    char component[256];
+    const char *p = path;
+
+    while (*p)
+    {
+        while (*p == '/')
+            p++;
+
+        if (*p == 0)
+            break;
+
+        uint32_t i = 0;
+        while (*p && *p != '/' && i < sizeof(component) - 1)
+            component[i++] = *p++;
+        component[i] = 0;
+
+        if (component[0] == 0)
+            continue;
+
+        if (component[0] == '.' && component[1] == 0)
+        {
+            continue;
+        }
+
+        if (component[0] == '.' && component[1] == '.' && component[2] == 0)
+        {
+            struct vfs_node *parent = vfs_get_parent(current);
+            if (parent)
+                current = parent;
+            continue;
+        }
+
+        /* Look up child */
+        struct vfs_node *child = vfs_get_child(current, component);
+        if (!child)
+            return 0;
+
+        current = child;
+    }
+
+    return current;
+}
+
+static struct vfs_node *
+vfs_walk(struct vfs_node *start, const char *path)
+{
+    if (!start || !path)
+        return 0;
+
+    struct vfs_node *current = start;
+    char component[256];
+    const char *p = path;
+
+    if (*p == '/')
+    {
+        current = root_node;
+        p++;
+    }
+
+    while (*p)
+    {
+        while (*p == '/')
+            p++;
+
+        if (*p == 0)
+            break;
+
+        uint32_t i = 0;
+        while (*p && *p != '/' && i < sizeof(component) - 1)
+            component[i++] = *p++;
+        component[i] = 0;
+
+        if (component[0] == 0)
+            continue;
+
+        if (component[0] == '.' && component[1] == 0)
+            continue;
+
+        if (component[0] == '.' && component[1] == '.' && component[2] == 0)
+        {
+            struct vfs_node *parent = vfs_get_parent(current);
+            if (parent)
+                current = parent;
+            continue;
+        }
+
+        struct vfs_node *child = vfs_get_child(current, component);
+        if (!child)
+            return 0;
+
+        current = child;
+    }
+
+    return current;
+}
+
+static struct vfs_node *
+vfs_get_child(struct vfs_node *parent, const char *name)
+{
+    if (!parent || !parent->ops || !parent->ops->readdir)
+        return 0;
+
+    if (!(parent->flags & S_IFDIR))
+        return 0;
+
+    struct dirent de;
+    for (uint32_t i = 0;; i++)
+    {
+        if (parent->ops->readdir(parent, i, &de) != 0)
+            break;
+
+        if (strcmp(de.d_name, name) == 0)
+        {
+            return ext2_vfs_node(root_fs, de.d_ino);
+        }
+    }
+
     return 0;
+}
+
+static struct vfs_node *
+vfs_get_parent(struct vfs_node *node)
+{
+    if (!node || !root_fs)
+        return 0;
+
+    if (node->ops && node->ops->readdir)
+    {
+        struct dirent de;
+        if (node->ops->readdir(node, 0, &de) == 0)
+        {
+            if (strcmp(de.d_name, ".") == 0)
+            {
+                if (node->ops->readdir(node, 1, &de) == 0)
+                {
+                    if (strcmp(de.d_name, "..") == 0)
+                    {
+                        return ext2_vfs_node(root_fs, de.d_ino);
+                    }
+                }
+            }
+        }
+    }
+
+    return root_node;
 }
 
 int

@@ -254,29 +254,25 @@ syscall_handler(struct trapframe *tf)
     {
         case SYS_READ:
         {
-            char *buf = (char *)tf->rdi;
+            void *buf = (void *)tf->rdi;
+            uint64_t size = tf->rsi;
 
-            if (tf->rsi < 1)
+            if (size == 0)
             {
                 tf->rax = 0;
                 return tf;
             }
 
-            buf[0] = keyboard_getc();
-
-            tf->rax = 1;
+            tf->rax = vfs_read(0, buf, size);
             return tf;
         }
 
         case SYS_WRITE:
         {
-            const char *buf = (const char *)tf->rdi;
-            uint64_t count = tf->rsi;
+            const void *buf = (const void *)tf->rdi;
+            uint64_t size = tf->rsi;
 
-            for (uint64_t i = 0; i < count; i++)
-                render_putc(buf[i], tf->rdx);
-
-            tf->rax = count;
+            tf->rax = vfs_write(1, buf, size);
             return tf;
         }
 
@@ -375,8 +371,7 @@ syscall_handler(struct trapframe *tf)
 
         case SYS_YIELD:
             tf->rax = 0;
-            sched_yield();
-            return tf;
+            return sched_yield(tf);
 
         default:
             tf->rax = (uint64_t)-1;

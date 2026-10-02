@@ -5,9 +5,11 @@
 
 #include <stdint.h>
 
+struct trapframe;
+
 void sched_init(void);
-void sched_yield(void);
-void sched_tick(void);
+struct trapframe *sched_yield(struct trapframe *current_tf);
+struct trapframe *sched_tick(struct trapframe *current_tf);
 struct trapframe *schedule(struct trapframe *current_tf);
 
 #endif

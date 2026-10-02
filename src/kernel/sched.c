@@ -3,7 +3,6 @@
 #include "kernel/sched.h"
 #include "kernel/process.h"
 #include "kernel/renderer.h"
-#include "kernel/idt.h"
 
 #include <stdint.h>
 
@@ -13,50 +12,25 @@ void
 sched_init(void)
 {
     tick_count = 0;
-    render_printf("sched: initialized\n");
 }
 
-void
-sched_yield(void)
+struct trapframe *
+sched_yield(struct trapframe *current_tf)
 {
-    struct trapframe tf_dummy;
-    struct trapframe *new_tf = schedule(&tf_dummy);
-    if (new_tf != &tf_dummy) {
-        __asm__ volatile (
-            "mov %0, %%rsp\n\t"
-            "pop %%r15\n\t"
-            "pop %%r14\n\t"
-            "pop %%r13\n\t"
-            "pop %%r12\n\t"
-            "pop %%r11\n\t"
-            "pop %%r10\n\t"
-            "pop %%r9\n\t"
-            "pop %%r8\n\t"
-            "pop %%rbp\n\t"
-            "pop %%rdi\n\t"
-            "pop %%rsi\n\t"
-            "pop %%rdx\n\t"
-            "pop %%rcx\n\t"
-            "pop %%rbx\n\t"
-            "pop %%rax\n\t"
-            "add $16, %%rsp\n\t"
-            "iretq"
-            :
-            : "r"(new_tf)
-            : "memory"
-        );
-    }
+    return schedule(current_tf);
 }
 
-void
-sched_tick(void)
+struct trapframe *
+sched_tick(struct trapframe *current_tf)
 {
     tick_count++;
 
     if (tick_count % 10 == 0)
     {
-        sched_yield();
+        return schedule(current_tf);
     }
+
+    return current_tf;
 }
 
 struct trapframe *

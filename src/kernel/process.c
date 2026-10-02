@@ -3,6 +3,8 @@
 #include "kernel/process.h"
 #include "kernel/gdt.h"
 #include "kernel/paging.h"
+#include "kernel/pmm.h"
+#include "kernel/console.h"
 
 static struct process processes[MAX_PROCS];
 
@@ -53,6 +55,8 @@ process_create(void)
         p->cwd[0] = '/';
         p->cwd[1] = 0;
 
+        console_init_process(p);
+
         return p;
     }
 
@@ -74,7 +78,17 @@ process_discard(struct process *p)
         }
     }
 
+    if (p->pml4)
+    {
+        paging_free_user_as(p->pml4);
+        pmm_free_page(p->pml4);
+        p->pml4 = 0;
+    }
+
     p->state = PROC_UNUSED;
+    p->brk = 0;
+    p->brk_start = 0;
+    p->tf = 0;
 }
 
 struct process *
@@ -120,6 +134,8 @@ process_bootstrap(uint64_t pml4, uint64_t brk)
     p->brk_start = brk;
 
     current_process = p;
+
+    console_init_process(p);
 
     paging_load_cr3(p->pml4);
     tss_set_rsp0(p->kstack_top);

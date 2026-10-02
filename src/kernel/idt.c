@@ -19,12 +19,16 @@ idt_set_gate(uint8_t vector, uint64_t handler, uint8_t flags)
 }
 
 extern void isr_null(void);
+extern void isr_syscall(void);
+extern void isr_timer(void);
+extern void isr_page_fault(void);
 
 void
 idt_init(void)
 {
     for (int i = 0; i < 256; i++)
         idt_set_gate(i, (uint64_t)isr_null, 0x8E);
+    idt_set_gate(0x0E, (uint64_t)isr_page_fault, 0x8E);
     idt_set_gate(0x20, (uint64_t)isr_timer, 0x8E);
     idt_set_gate(0x80, (uint64_t)isr_syscall, 0xEE);
 

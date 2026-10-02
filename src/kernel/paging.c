@@ -69,55 +69,11 @@ paging_load_cr3(uint64_t pml4_phys)
     );
 }
 
-static
-void
-mark_user(uint64_t *pte)
+static inline
+int
+is_kernel_pml4_index(int idx)
 {
-    if (*pte & PTE_PRESENT)
-        *pte |= PTE_USER;
-}
-
-void
-paging_allow_user_access(void)
-{
-    uint64_t cr3 = read_cr3();
-    uint64_t *pml4 = (uint64_t *)phys_to_virt(cr3 & PTE_ADDR_MASK);
-
-    for (int i = 0; i < 512; i++)
-    {
-        if (!(pml4[i] & PTE_PRESENT))
-            continue;
-        mark_user(&pml4[i]);
-
-        uint64_t *pdpt = (uint64_t *)phys_to_virt(pml4[i] & PTE_ADDR_MASK);
-        for (int j = 0; j < 512; j++)
-        {
-            if (!(pdpt[j] & PTE_PRESENT))
-                continue;
-            mark_user(&pdpt[j]);
-            if (pdpt[j] & PTE_PS)
-                continue;
-
-            uint64_t *pd = (uint64_t *)phys_to_virt(pdpt[j] & PTE_ADDR_MASK);
-            for (int k = 0; k < 512; k++)
-            {
-                if (!(pd[k] & PTE_PRESENT))
-                    continue;
-                mark_user(&pd[k]);
-                if (pd[k] & PTE_PS)
-                    continue;
-
-                uint64_t *pt = (uint64_t *)phys_to_virt(pd[k] & PTE_ADDR_MASK);
-                for (int l = 0; l < 512; l++)
-                {
-                    if (pt[l] & PTE_PRESENT)
-                        mark_user(&pt[l]);
-                }
-            }
-        }
-    }
-
-    paging_load_cr3(cr3 & PTE_ADDR_MASK);
+    return idx >= 256;
 }
 
 uint64_t
@@ -163,13 +119,15 @@ paging_map_page_in(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t fl
     uint64_t pd_i = (virt >> 21) & 0x1FF;
     uint64_t pt_i = (virt >> 12) & 0x1FF;
 
+    uint64_t table_flags = (is_kernel_pml4_index(pml4_i) ? 0 : (flags & PTE_USER));
+
     if (!(pml4[pml4_i] & PTE_PRESENT))
     {
         uint64_t page = pmm_alloc_page();
         if (page == 0)
             return -1;
         zero_page(page);
-        pml4[pml4_i] = page | PTE_PRESENT | PTE_WRITE | (flags & PTE_USER);
+        pml4[pml4_i] = page | PTE_PRESENT | PTE_WRITE | table_flags;
     }
 
     uint64_t *pdpt = (uint64_t *)phys_to_virt(pml4[pml4_i] & PTE_ADDR_MASK);
@@ -180,7 +138,7 @@ paging_map_page_in(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t fl
         if (page == 0)
             return -1;
         zero_page(page);
-        pdpt[pdpt_i] = page | PTE_PRESENT | PTE_WRITE | (flags & PTE_USER);
+        pdpt[pdpt_i] = page | PTE_PRESENT | PTE_WRITE | table_flags;
     }
     else if (pdpt[pdpt_i] & PTE_PS)
     {
@@ -195,7 +153,7 @@ paging_map_page_in(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t fl
         if (page == 0)
             return -1;
         zero_page(page);
-        pd[pd_i] = page | PTE_PRESENT | PTE_WRITE | (flags & PTE_USER);
+        pd[pd_i] = page | PTE_PRESENT | PTE_WRITE | table_flags;
     }
     else if (pd[pd_i] & PTE_PS)
     {
@@ -239,6 +197,42 @@ paging_unmap_page(uint64_t virt)
     invlpg(virt);
 }
 
+static void
+free_page_table(uint64_t table_phys, int level)
+{
+    uint64_t *table = (uint64_t *)phys_to_virt(table_phys);
+
+    if (level > 0)
+    {
+        for (int i = 0; i < 512; i++)
+        {
+            if (table[i] & PTE_PRESENT)
+            {
+                uint64_t child_phys = table[i] & PTE_ADDR_MASK;
+                free_page_table(child_phys, level - 1);
+            }
+        }
+    }
+
+    pmm_free_page(table_phys);
+}
+
+void
+paging_free_user_as(uint64_t pml4_phys)
+{
+    uint64_t *pml4 = (uint64_t *)phys_to_virt(pml4_phys & PTE_ADDR_MASK);
+
+    for (int i = 0; i < 256; i++)
+    {
+        if (pml4[i] & PTE_PRESENT)
+        {
+            uint64_t pdpt_phys = pml4[i] & PTE_ADDR_MASK;
+            free_page_table(pdpt_phys, 2);
+            pml4[i] = 0;
+        }
+    }
+}
+
 uint64_t
 paging_create_user_as(uint64_t *user_stack_top)
 {
@@ -253,17 +247,30 @@ paging_create_user_as(uint64_t *user_stack_top)
     uint64_t *user_pml4 = (uint64_t *)phys_to_virt(user_pml4_phys);
 
     for (int i = 256; i < 512; i++)
-        user_pml4[i] = kernel_pml4[i];
+    {
+        if (kernel_pml4[i] & PTE_PRESENT)
+        {
+            user_pml4[i] = kernel_pml4[i] & ~PTE_USER;
+        }
+    }
 
     uint64_t stack_bottom = USER_STACK_VIRT - USER_STACK_PAGES * PAGE_SIZE;
     for (uint64_t i = 0; i < USER_STACK_PAGES; i++)
     {
         uint64_t phys = pmm_alloc_page();
         if (phys == 0)
+        {
+            paging_free_user_as(user_pml4_phys);
+            pmm_free_page(user_pml4_phys);
             return 0;
+        }
         zero_page(phys);
         if (paging_map_page_in(user_pml4_phys, stack_bottom + i * PAGE_SIZE, phys, PTE_PRESENT | PTE_WRITE | PTE_USER) != 0)
+        {
+            paging_free_user_as(user_pml4_phys);
+            pmm_free_page(user_pml4_phys);
             return 0;
+        }
     }
 
     if (user_stack_top)

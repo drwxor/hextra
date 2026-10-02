@@ -89,8 +89,7 @@ kmain(void)
 
     struct limine_flanterm_fb_init_params *font_params = 0;
 
-    if (flanterm_request.response != 0 &&
-        flanterm_request.response->entry_count > 0)
+    if (flanterm_request.response != 0 && flanterm_request.response->entry_count > 0)
     {
         font_params = flanterm_request.response->entries[0];
     }
@@ -102,8 +101,10 @@ kmain(void)
 
     gdt_init();
     render_printf("gdt "); render_printf_colored("[OK]\n", GREEN_COLOR);
+
     tss_set_rsp0(KERNEL_STACK_TOP);
     render_printf("tss "); render_printf_colored("[OK]\n", GREEN_COLOR);
+
     idt_init();
     render_printf("idt "); render_printf_colored("[OK]\n", GREEN_COLOR);
 
@@ -126,7 +127,6 @@ kmain(void)
         render_printf("pmm: no memmap from limine!\n");
 
     heap_init();
-    paging_allow_user_access();
     process_init();
 
     uint64_t user_stack_top = 0;
@@ -163,9 +163,7 @@ kmain(void)
             rootfs = fs;
 
             vfs_init();
-            struct vfs_node *root = ext2_vfs_node(fs, 2);
-            if (root)
-                vfs_set_root(root);
+            vfs_set_root_fs(fs);
 
             void *file_buf = 0;
             uint64_t file_size = ext2_read_file(fs, "/bin/init", &file_buf);
