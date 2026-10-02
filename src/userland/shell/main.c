@@ -175,11 +175,19 @@ main(void)
                 printf("%s", line + 7);
             else if (strncmp(line, "run ", 4) == 0)
             {
-                pid_t pid = spawn(line + 4);
+                const char *path = line + 4;
+                char *argv[] = { (char *)path, 0 };
 
+                pid_t pid = fork();
                 if (pid < 0)
                 {
-                    printf("hextra: failed to spawn: %s\n", line + 4);
+                    printf("hextra: failed to fork\n");
+                }
+                else if (pid == 0)
+                {
+                    execve(path, argv, 0);
+                    printf("hextra: failed to exec: %s\n", path);
+                    _exit(1);
                 }
                 else
                 {
@@ -188,7 +196,10 @@ main(void)
             }
             else if (strncmp(line, "exec ", 5) == 0)
             {
-                exec(line + 5);
+                const char *path = line + 5;
+                char *argv[] = { (char *)path, 0 };
+                execve(path, argv, 0);
+                printf("hextra: failed to exec: %s\n", path);
             }
             else if (strncmp(line, "cd ", 3) == 0)
                 cmd_cd(line + 3);

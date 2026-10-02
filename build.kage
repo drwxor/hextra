@@ -86,6 +86,7 @@ compile cc src/kernel/user/user.c > build/object/user.o;
 compile cc src/kernel/shell/shell.c > build/object/shell.o;
 compile cc src/kernel/string.c > build/object/string.o;
 compile cc src/kernel/console.c > build/object/console.o;
+compile cc src/kernel/uaccess.c > build/object/uaccess.o;
 
 # libc
 compile nasm src/libc/crt0.asm > build/object/libc/crt0.o;
@@ -114,6 +115,6 @@ compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/li
 compile nasm src/kernel/init_elf.asm @ build/userland/init.elf > build/object/init/elf.o;
 
 # kernel image
-compile ld build/object/entry.o build/object/isr.o build/object/user_entry.o build/object/main.o build/object/renderer.o build/object/driver/keyboard.o build/object/gdt.o build/object/idt.o build/object/syscall.o build/object/paging.o build/object/pmm.o build/object/heap.o build/object/elf.o build/object/ata.o build/object/pit.o build/object/sched.o build/object/pagefault.o build/object/process.o build/object/fs/ext2.o build/object/fs/vfs.o build/object/fs/gpt.o build/object/init/elf.o build/object/user.o build/object/shell.o build/object/string.o build/object/console.o > build/hextra.elf;
+compile ld build/object/entry.o build/object/isr.o build/object/user_entry.o build/object/main.o build/object/renderer.o build/object/driver/keyboard.o build/object/gdt.o build/object/idt.o build/object/syscall.o build/object/paging.o build/object/pmm.o build/object/heap.o build/object/elf.o build/object/ata.o build/object/pit.o build/object/sched.o build/object/pagefault.o build/object/process.o build/object/fs/ext2.o build/object/fs/vfs.o build/object/fs/gpt.o build/object/init/elf.o build/object/user.o build/object/shell.o build/object/string.o build/object/console.o build/object/uaccess.o > build/hextra.elf;
 
 default build/hextra.elf build/userland/shell/main.elf build/userland/shell/yes.elf build/userland/shell/libctest.elf;

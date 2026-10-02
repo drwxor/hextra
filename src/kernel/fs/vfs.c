@@ -6,6 +6,7 @@
 #include "kernel/renderer.h"
 #include "kernel/process.h"
 #include "kernel/string.h"
+#include "kernel/uaccess.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -100,7 +101,6 @@ resolve_path(const char *path)
             continue;
         }
 
-        /* Look up child */
         struct vfs_node *child = vfs_get_child(current, component);
         if (!child)
             return 0;
@@ -270,7 +270,7 @@ vfs_close(int fd)
 }
 
 int
-vfs_read(int fd, void *buf, size_t size)
+vfs_read(int fd, void *user_buf, size_t size)
 {
     struct process *proc = process_current();
     if (!proc || fd < 0 || fd >= MAX_FDS)
@@ -280,15 +280,30 @@ vfs_read(int fd, void *buf, size_t size)
     if (!f || !f->node->ops || !f->node->ops->read)
         return -1;
 
-    int ret = f->node->ops->read(f->node, f->offset, buf, size);
-    if (ret > 0)
-        f->offset += ret;
+    if (size == 0)
+        return 0;
 
+    void *kbuf = kmalloc(size);
+    if (!kbuf)
+        return -1;
+
+    int ret = f->node->ops->read(f->node, f->offset, kbuf, size);
+    if (ret > 0)
+    {
+        f->offset += ret;
+        if (copyout(user_buf, kbuf, ret) != 0)
+        {
+            kfree(kbuf);
+            return -1;
+        }
+    }
+
+    kfree(kbuf);
     return ret;
 }
 
 int
-vfs_write(int fd, const void *buf, size_t size)
+vfs_write(int fd, const void *user_buf, size_t size)
 {
     struct process *proc = process_current();
     if (!proc || fd < 0 || fd >= MAX_FDS)
@@ -298,15 +313,29 @@ vfs_write(int fd, const void *buf, size_t size)
     if (!f || !f->node->ops || !f->node->ops->write)
         return -1;
 
-    int ret = f->node->ops->write(f->node, f->offset, buf, size);
+    if (size == 0)
+        return 0;
+
+    void *kbuf = kmalloc(size);
+    if (!kbuf)
+        return -1;
+
+    if (copyin(kbuf, user_buf, size) != 0)
+    {
+        kfree(kbuf);
+        return -1;
+    }
+
+    int ret = f->node->ops->write(f->node, f->offset, kbuf, size);
     if (ret > 0)
         f->offset += ret;
 
+    kfree(kbuf);
     return ret;
 }
 
 int
-vfs_readdir(int fd, uint32_t index, struct dirent *out)
+vfs_readdir(int fd, uint32_t index, struct dirent *user_out)
 {
     struct process *proc = process_current();
     if (!proc || fd < 0 || fd >= MAX_FDS)
@@ -316,5 +345,13 @@ vfs_readdir(int fd, uint32_t index, struct dirent *out)
     if (!f || !f->node->ops || !f->node->ops->readdir)
         return -1;
 
-    return f->node->ops->readdir(f->node, index, out);
+    struct dirent kdirent;
+    int ret = f->node->ops->readdir(f->node, index, &kdirent);
+    if (ret == 0)
+    {
+        if (copyout(user_out, &kdirent, sizeof(kdirent)) != 0)
+            return -1;
+    }
+
+    return ret;
 }

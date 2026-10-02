@@ -28,7 +28,6 @@ serial_putc(char c)
 {
     while (!(inb(COM1 + 5) & 0x20))
         ;
-
     outb(COM1, c);
 }
 

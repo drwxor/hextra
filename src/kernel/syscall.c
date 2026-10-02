@@ -12,50 +12,302 @@
 #include "kernel/process.h"
 #include "kernel/gdt.h"
 #include "kernel/sched.h"
+#include "kernel/uaccess.h"
+#include "kernel/string.h"
 
 #include <stdint.h>
 
-static
-int
-copy_user_string(char *dst, uint64_t cap, uint64_t src)
+static int
+copy_argv_envp(const char *const *user_argv, char ***out_argv, char ***out_envp)
 {
-    if (src < 0x1000 || src >= USER_LIMIT)
-        return -1;
-
-    for (uint64_t i = 0; i + 1 < cap; i++)
+    if (!user_argv)
     {
-        uint64_t va = src + i;
-
-        if (va >= USER_LIMIT)
-            return -1;
-
-        uint64_t phys = paging_virt_to_phys(va);
-        if (phys == 0)
-            return -1;
-
-        dst[i] = *(const char *)paging_phys_to_virt(phys);
-
-        if (dst[i] == '\0')
-            return 0;
+        *out_argv = 0;
+        *out_envp = 0;
+        return 0;
     }
 
-    dst[cap - 1] = '\0';
-    return -1;
+    int argc = 0;
+
+    while (1)
+    {
+        const char *arg;
+
+        if (copyin(&arg, &user_argv[argc], sizeof(arg)) != 0)
+        {
+            render_printf("exec argv: pointer copy failed at %d\n", argc);
+            return -1;
+        }
+
+        if (!arg)
+            break;
+
+        argc++;
+
+        if (argc > 64)
+        {
+            render_printf("exec argv: too many args\n");
+            return -1;
+        }
+    }
+
+    render_printf("exec argv: argc=%d\n", argc);
+
+    char **kargv = kmalloc((argc + 1) * sizeof(char *));
+    if (!kargv)
+    {
+        render_printf("exec argv: unable to allocate args\n");
+        return -1;
+    }
+
+    for (int i = 0; i < argc; i++)
+    {
+        const char *user_arg;
+
+        if (copyin(&user_arg, &user_argv[i], sizeof(user_arg)) != 0)
+        {
+            render_printf("exec argv: pointer copy failed at %d\n", i);
+
+            for (int j = 0; j < i; j++)
+                kfree(kargv[j]);
+
+            kfree(kargv);
+            return -1;
+        }
+
+        size_t len = 0;
+
+        while (1)
+        {
+            char c;
+
+            if (copyin(&c, user_arg + len, 1) != 0)
+            {
+                render_printf("exec argv: string copy failed at %d\n", i);
+
+                for (int j = 0; j < i; j++)
+                    kfree(kargv[j]);
+
+                kfree(kargv);
+                return -1;
+            }
+
+            if (c == '\0')
+                break;
+
+            len++;
+
+            if (len > 4096)
+            {
+                render_printf("exec argv: argument too long\n");
+
+                for (int j = 0; j < i; j++)
+                    kfree(kargv[j]);
+
+                kfree(kargv);
+                return -1;
+            }
+        }
+
+        kargv[i] = kmalloc(len + 1);
+
+        if (!kargv[i])
+        {
+            for (int j = 0; j < i; j++)
+                kfree(kargv[j]);
+
+            kfree(kargv);
+            return -1;
+        }
+
+        if (copyin(kargv[i], user_arg, len + 1) != 0)
+        {
+            render_printf("exec argv: string copy failed at %d\n", i);
+
+            for (int j = 0; j <= i; j++)
+                kfree(kargv[j]);
+
+            kfree(kargv);
+            return -1;
+        }
+    }
+
+    kargv[argc] = 0;
+
+    *out_argv = kargv;
+    *out_envp = 0;
+
+    return 0;
+}
+
+static void
+free_argv(char **argv)
+{
+    if (!argv)
+        return;
+    for (int i = 0; argv[i]; i++)
+        kfree(argv[i]);
+    kfree(argv);
+}
+
+static int
+copy_address_space(struct process *dst, struct process *src)
+{
+    if (!src->pml4)
+        return -1;
+
+    uint64_t child_pml4 = paging_create_user_as(0);
+    if (!child_pml4)
+        return -1;
+
+    uint64_t *parent_pml4 = (uint64_t *)paging_phys_to_virt(src->pml4 & PTE_ADDR_MASK);
+    uint64_t *child_pml4_ptr = (uint64_t *)paging_phys_to_virt(child_pml4);
+
+    for (int i = 0; i < 256; i++)
+    {
+        if (!(parent_pml4[i] & PTE_PRESENT))
+            continue;
+
+        uint64_t parent_pdpt = parent_pml4[i] & PTE_ADDR_MASK;
+        uint64_t child_pdpt = pmm_alloc_page();
+        if (!child_pdpt)
+        {
+            paging_free_user_as(child_pml4);
+            pmm_free_page(child_pml4);
+            return -1;
+        }
+        paging_zero_page(child_pdpt);
+        memcpy(paging_phys_to_virt(child_pdpt), paging_phys_to_virt(parent_pdpt), PAGE_SIZE);
+        child_pml4_ptr[i] = child_pdpt | (parent_pml4[i] & ~PTE_ADDR_MASK);
+
+        uint64_t *parent_pdpt_ptr = (uint64_t *)paging_phys_to_virt(parent_pdpt);
+        uint64_t *child_pdpt_ptr = (uint64_t *)paging_phys_to_virt(child_pdpt);
+
+        for (int j = 0; j < 512; j++)
+        {
+            if (!(parent_pdpt_ptr[j] & PTE_PRESENT) || (parent_pdpt_ptr[j] & PTE_PS))
+                continue;
+
+            uint64_t parent_pd = parent_pdpt_ptr[j] & PTE_ADDR_MASK;
+            uint64_t child_pd = pmm_alloc_page();
+            if (!child_pd)
+            {
+                paging_free_user_as(child_pml4);
+                pmm_free_page(child_pml4);
+                return -1;
+            }
+            paging_zero_page(child_pd);
+            memcpy(paging_phys_to_virt(child_pd), paging_phys_to_virt(parent_pd), PAGE_SIZE);
+            child_pdpt_ptr[j] = child_pd | (parent_pdpt_ptr[j] & ~PTE_ADDR_MASK);
+
+            uint64_t *parent_pd_ptr = (uint64_t *)paging_phys_to_virt(parent_pd);
+            uint64_t *child_pd_ptr = (uint64_t *)paging_phys_to_virt(child_pd);
+
+            for (int k = 0; k < 512; k++)
+            {
+                if (!(parent_pd_ptr[k] & PTE_PRESENT) || (parent_pd_ptr[k] & PTE_PS))
+                    continue;
+
+                uint64_t parent_pt = parent_pd_ptr[k] & PTE_ADDR_MASK;
+                uint64_t child_pt = pmm_alloc_page();
+                if (!child_pt)
+                {
+                    paging_free_user_as(child_pml4);
+                    pmm_free_page(child_pml4);
+                    return -1;
+                }
+                paging_zero_page(child_pt);
+                memcpy(paging_phys_to_virt(child_pt), paging_phys_to_virt(parent_pt), PAGE_SIZE);
+                child_pd_ptr[k] = child_pt | (parent_pd_ptr[k] & ~PTE_ADDR_MASK);
+            }
+        }
+    }
+
+    dst->pml4 = child_pml4;
+    dst->brk = src->brk;
+    dst->brk_start = src->brk_start;
+    return 0;
 }
 
 struct trapframe *
-sys_exec(struct trapframe *tf, const char *user_path)
+sys_fork(struct trapframe *tf)
+{
+    struct process *parent = process_current();
+
+    struct process *child = process_create();
+    if (!child)
+    {
+        tf->rax = (uint64_t)-1;
+        return tf;
+    }
+
+    child->ppid = parent->pid;
+
+    if (copy_address_space(child, parent) != 0)
+    {
+        process_discard(child);
+        tf->rax = (uint64_t)-1;
+        return tf;
+    }
+
+    for (int i = 0; i < MAX_FDS; i++)
+    {
+        if (parent->fds[i])
+        {
+            struct file *f = kmalloc(sizeof(*f));
+            if (!f)
+            {
+                process_discard(child);
+                tf->rax = (uint64_t)-1;
+                return tf;
+            }
+            *f = *parent->fds[i];
+            f->refcount++;
+            child->fds[i] = f;
+        }
+    }
+
+    memcpy(child->cwd, parent->cwd, MAX_PATH);
+
+    child->tf = tf;
+
+    struct trapframe *child_tf = (struct trapframe *)(child->kstack_top - sizeof(struct trapframe));
+    memcpy(child_tf, tf, sizeof(struct trapframe));
+    child_tf->rax = 0;
+    child->tf = child_tf;
+
+    child->state = PROC_RUNNABLE;
+
+    tf->rax = child->pid;
+    return tf;
+}
+
+struct trapframe *
+sys_execve(struct trapframe *tf, const char *user_path, char *const *user_argv, char *const *user_envp)
 {
     char path[128];
 
-    if (copy_user_string(path, sizeof(path), (uint64_t)user_path) != 0)
+    if (copyin_str(path, sizeof(path), user_path) != 0)
     {
+        render_printf("exec: copy path failed\n");
+        tf->rax = (uint64_t)-1;
+        return tf;
+    }
+
+    char **kargv = 0;
+    char **kenvp = 0;
+    if (copy_argv_envp(user_argv, &kargv, &kenvp) != 0)
+    {
+        render_printf("exec: argv failed\n");
+        free_argv(kargv);
         tf->rax = (uint64_t)-1;
         return tf;
     }
 
     if (!rootfs)
     {
+        render_printf("exec: no rootfs\n");
+        free_argv(kargv);
         tf->rax = (uint64_t)-1;
         return tf;
     }
@@ -66,9 +318,13 @@ sys_exec(struct trapframe *tf, const char *user_path)
 
     if (file_size == (uint64_t)-1 || file_buf == 0)
     {
+        render_printf("exec: read '%s' failed\n", path);
+        free_argv(kargv);
         tf->rax = (uint64_t)-1;
         return tf;
     }
+
+    render_printf("exec: loaded '%s', size=%x\n", path, file_size);
 
     uint64_t user_stack_top = 0;
 
@@ -76,7 +332,9 @@ sys_exec(struct trapframe *tf, const char *user_path)
 
     if (user_pml4 == 0)
     {
+        render_printf("exec: create user AS failed\n");
         kfree(file_buf);
+        free_argv(kargv);
         tf->rax = (uint64_t)-1;
         return tf;
     }
@@ -90,16 +348,28 @@ sys_exec(struct trapframe *tf, const char *user_path)
 
     if (rc != 0)
     {
+        render_printf("exec: elf_load failed rc=%d\n", rc);
+        free_argv(kargv);
         tf->rax = (uint64_t)-1;
         return tf;
     }
 
+    render_printf("exec: ELF okay entry=%x\n", entry);
+
     struct process *current = process_current();
+
+    if (current->pml4)
+    {
+        paging_free_user_as(current->pml4);
+        pmm_free_page(current->pml4);
+    }
 
     current->pml4 = user_pml4;
     current->brk = brk;
     current->brk_start = brk;
     current->tf = tf;
+
+    uint64_t stack_ptr = user_stack_top;
 
     tf->rip = entry;
     tf->rsp = user_stack_top;
@@ -108,6 +378,7 @@ sys_exec(struct trapframe *tf, const char *user_path)
     paging_load_cr3(user_pml4);
     tss_set_rsp0(current->kstack_top);
 
+    free_argv(kargv);
     return tf;
 }
 
@@ -173,76 +444,6 @@ sys_exit(struct trapframe *tf, int status)
     return process_switch(parent);
 }
 
-static
-long
-sys_spawn(const char *user_path)
-{
-    char path[128];
-
-    if (copy_user_string(path, sizeof(path), (uint64_t)user_path) != 0)
-    {
-        return -1;
-    }
-
-    if (!rootfs)
-        return -1;
-
-    void *file_buf = 0;
-
-    uint64_t file_size = ext2_read_file(rootfs, path, &file_buf);
-
-    if (file_size == (uint64_t)-1 ||
-        file_buf == 0)
-    {
-        return -1;
-    }
-
-    struct process *parent = process_current();
-
-    struct process *child = process_create();
-
-    if (!child)
-    {
-        kfree(file_buf);
-        return -1;
-    }
-
-    uint64_t user_stack_top = 0;
-
-    uint64_t user_pml4 = paging_create_user_as(&user_stack_top);
-
-    if (!user_pml4)
-    {
-        kfree(file_buf);
-        process_discard(child);
-        return -1;
-    }
-
-    uint64_t entry = 0;
-    uint64_t brk = 0;
-
-    int rc = elf_load(file_buf, file_size, user_pml4, &entry, &brk);
-
-    kfree(file_buf);
-
-    if (rc != 0)
-    {
-        process_discard(child);
-        return -1;
-    }
-
-    child->ppid = parent->pid;
-    child->pml4 = user_pml4;
-    child->brk = brk;
-    child->brk_start = brk;
-
-    process_make_user(child, entry, user_stack_top);
-
-    child->state = PROC_RUNNABLE;
-
-    return child->pid;
-}
-
 struct trapframe *
 syscall_handler(struct trapframe *tf)
 {
@@ -254,8 +455,9 @@ syscall_handler(struct trapframe *tf)
     {
         case SYS_READ:
         {
-            void *buf = (void *)tf->rdi;
-            uint64_t size = tf->rsi;
+            int fd = (int)tf->rdi;
+            void *buf = (void *)tf->rsi;
+            uint64_t size = tf->rdx;
 
             if (size == 0)
             {
@@ -263,16 +465,17 @@ syscall_handler(struct trapframe *tf)
                 return tf;
             }
 
-            tf->rax = vfs_read(0, buf, size);
+            tf->rax = vfs_read(fd, buf, size);
             return tf;
         }
 
         case SYS_WRITE:
         {
-            const void *buf = (const void *)tf->rdi;
-            uint64_t size = tf->rsi;
+            int fd = (int)tf->rdi;
+            const void *buf = (const void *)tf->rsi;
+            uint64_t size = tf->rdx;
 
-            tf->rax = vfs_write(1, buf, size);
+            tf->rax = vfs_write(fd, buf, size);
             return tf;
         }
 
@@ -293,9 +496,8 @@ syscall_handler(struct trapframe *tf)
             tf->rax = elf_brk(tf->rdi);
             return tf;
 
-        case SYS_SPAWN:
-            tf->rax = sys_spawn((const char *)tf->rdi);
-            return tf;
+        case SYS_FORK:
+            return sys_fork(tf);
 
         case SYS_WAIT:
             return sys_wait(tf, (int)tf->rdi);
@@ -303,13 +505,13 @@ syscall_handler(struct trapframe *tf)
         case SYS_EXIT:
             return sys_exit(tf, (int)tf->rdi);
 
-        case SYS_EXEC:
-            return sys_exec(tf, (const char *)tf->rdi);
+        case SYS_EXECVE:
+            return sys_execve(tf, (const char *)tf->rdi, (char *const *)tf->rsi, (char *const *)tf->rdx);
 
         case SYS_OPEN:
         {
             char path[128];
-            if (copy_user_string(path, sizeof(path), tf->rdi) != 0)
+            if (copyin_str(path, sizeof(path), (const char *)tf->rdi) != 0)
             {
                 tf->rax = (uint64_t)-1;
                 return tf;
@@ -352,7 +554,7 @@ syscall_handler(struct trapframe *tf)
         case SYS_CHDIR:
         {
             char path[128];
-            if (copy_user_string(path, sizeof(path), tf->rdi) != 0)
+            if (copyin_str(path, sizeof(path), (const char *)tf->rdi) != 0)
             {
                 tf->rax = (uint64_t)-1;
                 return tf;
@@ -372,6 +574,16 @@ syscall_handler(struct trapframe *tf)
         case SYS_YIELD:
             tf->rax = 0;
             return sched_yield(tf);
+
+        case SYS_KDEBUG:
+        {
+            const char *msg = (const char *)tf->rdi;
+            uint64_t len = tf->rsi;
+            for (uint64_t i = 0; i < len; i++)
+                render_putc(msg[i], 0xFFFFFF);
+            tf->rax = 0;
+            return tf;
+        }
 
         default:
             tf->rax = (uint64_t)-1;
@@ -426,6 +638,20 @@ syscall3(long n, long a1, long a2, long a3)
         "int $0x80"
         : "=a"(ret)
         : "a"(n), "D"(a1), "S"(a2), "d"(a3)
+        : "memory"
+    );
+    return ret;
+}
+
+long
+syscall4(long n, long a1, long a2, long a3, long a4)
+{
+    long ret;
+    register long r10_val asm("r10") = a4;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10_val)
         : "memory"
     );
     return ret;

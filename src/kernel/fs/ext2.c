@@ -12,114 +12,27 @@
 #include <stddef.h>
 
 #include "kernel/string.h"
+#include "kernel/uaccess.h"
 
 struct ext2_fs *rootfs;
-
-#define EXT2_SUPER_MAGIC 0xEF53
-
-struct ext2_superblock
-{
-    uint32_t s_inodes_count;
-    uint32_t s_blocks_count;
-    uint32_t s_r_blocks_count;
-    uint32_t s_free_blocks_count;
-    uint32_t s_free_inodes_count;
-    uint32_t s_first_data_block;
-    uint32_t s_log_block_size;
-    uint32_t s_log_frag_size;
-    uint32_t s_blocks_per_group;
-    uint32_t s_frags_per_group;
-    uint32_t s_inodes_per_group;
-    uint32_t s_mtime;
-    uint32_t s_wtime;
-    uint16_t s_mnt_count;
-    uint16_t s_max_mnt_count;
-    uint16_t s_magic;
-    uint16_t s_state;
-    uint16_t s_errors;
-    uint16_t s_minor_rev_level;
-    uint32_t s_lastcheck;
-    uint32_t s_checkinterval;
-    uint32_t s_creator_os;
-    uint32_t s_rev_level;
-    uint16_t s_def_resuid;
-    uint16_t s_def_resgid;
-
-    uint32_t s_first_ino;
-    uint16_t s_inode_size;
-    uint16_t s_block_group_nr;
-    uint32_t s_feature_compat;
-    uint32_t s_feature_incompat;
-    uint32_t s_feature_ro_compat;
-    uint8_t  s_uuid[16];
-    char s_volume_name[16];
-    char s_last_mounted[64];
-    uint32_t s_algo_bitmap;
-} __attribute__((packed));
-
-struct ext2_bgd
-{
-    uint32_t bg_block_bitmap;
-    uint32_t bg_inode_bitmap;
-    uint32_t bg_inode_table;
-    uint16_t bg_free_blocks_count;
-    uint16_t bg_free_inodes_count;
-    uint16_t bg_used_dirs_count;
-    uint16_t bg_pad;
-    uint8_t  bg_reserved[12];
-} __attribute__((packed));
-
-struct ext2_inode
-{
-    uint16_t i_mode;
-    uint16_t i_uid;
-    uint32_t i_size;
-    uint32_t i_atime;
-    uint32_t i_ctime;
-    uint32_t i_mtime;
-    uint32_t i_dtime;
-    uint16_t i_gid;
-    uint16_t i_links_count;
-    uint32_t i_blocks;
-    uint32_t i_flags;
-    uint32_t i_osd1;
-    uint32_t i_block[15];
-    uint32_t i_generation;
-    uint32_t i_file_acl;
-    uint32_t i_dir_acl;
-    uint32_t i_faddr;
-    uint8_t i_osd2[12];
-} __attribute__((packed));
-
-struct ext2_dirent
-{
-    uint32_t inode;
-    uint16_t rec_len;
-    uint8_t name_len;
-    uint8_t file_type;
-    char name[];
-} __attribute__((packed));
-
-#define EXT2_S_IFREG 0x8000
-#define EXT2_S_IFDIR 0x4000
-
-struct ext2_fs
-{
-    uint32_t start_lba;
-    uint32_t block_size;
-    uint32_t inodes_per_group;
-    uint32_t blocks_per_group;
-    uint16_t inode_size;
-    uint32_t first_data_block;
-    struct ext2_superblock sb;
-};
 
 static int
 read_blocks(struct ext2_fs *fs, uint32_t block_nr, uint32_t count, void *buf)
 {
-    uint32_t sectors_per_block = fs->block_size / 512;
-    uint32_t lba = fs->start_lba + block_nr * sectors_per_block;
-    return ata_read_sectors(lba, (uint8_t)(count * sectors_per_block), buf);
+    if (fs->mod_base)
+    {
+        uint64_t offset = (uint64_t)block_nr * fs->block_size;
+        if (offset + count * fs->block_size > fs->mod_base + fs->mod_size)
+            return -1;
+        memcpy(buf, (const void *)(fs->mod_base + offset), count * fs->block_size);
+        return 0;
+    }
+    else
+    {
+        uint32_t sectors_per_block = fs->block_size / 512;
+        uint32_t lba = fs->start_lba + block_nr * sectors_per_block;
+        return ata_read_sectors(lba, (uint8_t)(count * sectors_per_block), buf);
+    }
 }
 
 struct ext2_fs *
@@ -160,6 +73,42 @@ ext2_mount(uint32_t start_lba)
     fs->sb = *sb;
 
     render_printf("ext2: mounted, block_size=%u inodes/group=%u\n", fs->block_size, fs->inodes_per_group);
+    return fs;
+}
+
+struct ext2_fs *
+ext2_mount_module(uint64_t mod_addr, uint64_t mod_size)
+{
+    if (mod_size < 2048)
+        return 0;
+
+    uint8_t *mod_data = (uint8_t *)mod_addr;
+    struct ext2_superblock *sb = (struct ext2_superblock *)(mod_data + 1024);
+
+    if (sb->s_magic != EXT2_SUPER_MAGIC)
+    {
+        render_printf("ext2: module bad magic 0x%x\n", sb->s_magic);
+        return 0;
+    }
+
+    struct ext2_fs *fs = kmalloc(sizeof(*fs));
+    if (!fs)
+    {
+        render_printf("ext2: unable to create filesystem\n");
+        return 0;
+    }
+
+    fs->start_lba = 0;
+    fs->block_size = 1024 << sb->s_log_block_size;
+    fs->inodes_per_group = sb->s_inodes_per_group;
+    fs->blocks_per_group = sb->s_blocks_per_group;
+    fs->inode_size = sb->s_inode_size ? sb->s_inode_size : 128;
+    fs->first_data_block = sb->s_first_data_block;
+    fs->sb = *sb;
+    fs->mod_base = mod_addr;
+    fs->mod_size = mod_size;
+
+    render_printf("ext2: mounted module, block_size=%u inodes/group=%u\n", fs->block_size, fs->inodes_per_group);
     return fs;
 }
 
@@ -381,11 +330,6 @@ ext2_unmount(struct ext2_fs *fs)
     if (fs)
         kfree(fs);
 }
-
-struct ext2_vfs_data {
-    struct ext2_fs *fs;
-    uint32_t ino;
-};
 
 static int
 ext2_vfs_read(struct vfs_node *node, uint64_t offset, void *buf, size_t size)

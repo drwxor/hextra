@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import NoReturn
 from pathlib import Path
 
@@ -70,7 +71,6 @@ def find_limine_assets(explicit: Path | None) -> Path:
     if env:
         candidates.append(Path(env).expanduser())
 
-    # Common layouts when building Limine from source or unpacking a release.
     candidates.extend(
         [
             ROOT / "limine",
@@ -150,6 +150,29 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def create_ext2_fs(shell_dir: Path, init_elf_path: Path, main_shell_path: Path, output_path: Path) -> Path:
+    """Create an ext2 filesystem image with the shell binary at /bin/sh."""
+    ext2_img = output_path.parent / "hextra.ext2"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        bin_dir = tmpdir / "bin"
+        bin_dir.mkdir()
+
+        shutil.copy2(main_shell_path, bin_dir / "sh")
+
+        shutil.copy2(init_elf_path, bin_dir / "init")
+
+        run([
+            "mkfs.ext2",
+            "-d", str(tmpdir),
+            str(ext2_img),
+            "16384"
+        ])
+
+    return ext2_img
+
+
 def main() -> int:
     args = parse_args()
 
@@ -166,6 +189,9 @@ def main() -> int:
     limine_cmd = shutil.which("limine")
     if limine_cmd is None:
         die("limine is not installed or is not in PATH")
+
+    if shutil.which("mkfs.ext2") is None:
+        die("mkfs.ext2 is not installed or not in PATH")
 
     limine_dir = find_limine_assets(args.limine)
     check_elf(kernel, "kernel")
@@ -199,15 +225,13 @@ def main() -> int:
     shutil.copy2(kernel, boot_dir / "hextra.elf")
     shutil.copy2(init_elf, boot_dir / "init.elf")
 
-    # Copy the entire shell userland tree recursively. This deliberately does
-    # not enumerate individual programs, so newly added files/directories
-    # under build/userland/shell are included automatically.
     shell_dst = boot_dir / "userland" / "shell"
     shutil.copytree(shell_dir, shell_dst)
 
-    # Limine's current hybrid-ISO layout expects these assets, and its config
-    # file can live under /boot/limine. The UEFI executable must be present in
-    # EFI/BOOT as well as the El Torito EFI image used by xorriso.
+    main_shell = shell_dir / "main.elf"
+    ext2_img = create_ext2_fs(shell_dir, init_elf, main_shell, output)
+    shutil.copy2(ext2_img, boot_dir / "hextra.ext2")
+
     for name in ("limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin"):
         shutil.copy2(limine_dir / name, limine_boot_dir / name)
     shutil.copy2(limine_dir / "BOOTX64.EFI", efi_boot_dir / "BOOTX64.EFI")
@@ -218,10 +242,8 @@ def main() -> int:
         "/Hextra",
         "    protocol: limine",
         "    path: boot():/boot/hextra.elf",
+        "    module_path: boot():/boot/hextra.ext2",
     ]
-
-    if use_shell_module:
-        config.append("    module_path: boot():/boot/userland/shell/main.elf")
 
     (limine_boot_dir / "limine.conf").write_text(
         "\n".join(config) + "\n",

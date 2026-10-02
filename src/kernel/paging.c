@@ -41,6 +41,55 @@ zero_page(uint64_t phys)
 }
 
 void
+paging_zero_page(uint64_t phys)
+{
+    zero_page(phys);
+}
+
+void
+paging_allow_user_access(void)
+{
+    uint64_t cr3 = read_cr3();
+    uint64_t *pml4 = (uint64_t *)phys_to_virt(cr3 & PTE_ADDR_MASK);
+
+    for (int i = 0; i < 512; i++)
+    {
+        if (!(pml4[i] & PTE_PRESENT))
+            continue;
+        pml4[i] |= PTE_USER;
+
+        uint64_t *pdpt = (uint64_t *)phys_to_virt(pml4[i] & PTE_ADDR_MASK);
+        for (int j = 0; j < 512; j++)
+        {
+            if (!(pdpt[j] & PTE_PRESENT))
+                continue;
+            pdpt[j] |= PTE_USER;
+            if (pdpt[j] & PTE_PS)
+                continue;
+
+            uint64_t *pd = (uint64_t *)phys_to_virt(pdpt[j] & PTE_ADDR_MASK);
+            for (int k = 0; k < 512; k++)
+            {
+                if (!(pd[k] & PTE_PRESENT))
+                    continue;
+                pd[k] |= PTE_USER;
+                if (pd[k] & PTE_PS)
+                    continue;
+
+                uint64_t *pt = (uint64_t *)phys_to_virt(pd[k] & PTE_ADDR_MASK);
+                for (int l = 0; l < 512; l++)
+                {
+                    if (pt[l] & PTE_PRESENT)
+                        pt[l] |= PTE_USER;
+                }
+            }
+        }
+    }
+
+    paging_load_cr3(cr3 & PTE_ADDR_MASK);
+}
+
+void
 paging_init(uint64_t hhdm)
 {
     hhdm_offset = hhdm;

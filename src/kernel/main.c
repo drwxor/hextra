@@ -89,7 +89,8 @@ kmain(void)
 
     struct limine_flanterm_fb_init_params *font_params = 0;
 
-    if (flanterm_request.response != 0 && flanterm_request.response->entry_count > 0)
+    if (flanterm_request.response != 0 &&
+        flanterm_request.response->entry_count > 0)
     {
         font_params = flanterm_request.response->entries[0];
     }
@@ -101,10 +102,8 @@ kmain(void)
 
     gdt_init();
     render_printf("gdt "); render_printf_colored("[OK]\n", GREEN_COLOR);
-
     tss_set_rsp0(KERNEL_STACK_TOP);
     render_printf("tss "); render_printf_colored("[OK]\n", GREEN_COLOR);
-
     idt_init();
     render_printf("idt "); render_printf_colored("[OK]\n", GREEN_COLOR);
 
@@ -127,6 +126,7 @@ kmain(void)
         render_printf("pmm: no memmap from limine!\n");
 
     heap_init();
+    paging_allow_user_access();
     process_init();
 
     uint64_t user_stack_top = 0;
@@ -163,7 +163,9 @@ kmain(void)
             rootfs = fs;
 
             vfs_init();
-            vfs_set_root_fs(fs);
+            struct vfs_node *root = ext2_vfs_node(fs, 2);
+            if (root)
+                vfs_set_root(root);
 
             void *file_buf = 0;
             uint64_t file_size = ext2_read_file(fs, "/bin/init", &file_buf);
@@ -188,7 +190,38 @@ kmain(void)
     {
         struct limine_file *mod = module_request.response->modules[0];
         render_printf("elf: loading module (%u bytes)\n", mod->size);
-        loaded = try_load_elf(mod->address, mod->size, user_pml4, &entry, &brk);
+
+        uint8_t *mod_data = (uint8_t *)mod->address;
+        struct ext2_superblock *sb = (struct ext2_superblock *)(mod_data + 1024);
+        if (sb->s_magic == EXT2_SUPER_MAGIC)
+        {
+            render_printf("ext2: found ext2 filesystem module\n");
+            rootfs = ext2_mount_module((uint64_t)mod->address, mod->size);
+            if (rootfs)
+            {
+                vfs_init();
+                struct vfs_node *root = ext2_vfs_node(rootfs, 2);
+                if (root)
+                    vfs_set_root(root);
+
+                void *file_buf = 0;
+                uint64_t file_size = ext2_read_file(rootfs, "/bin/init", &file_buf);
+
+                if (file_size != (uint64_t)-1 && file_buf)
+                {
+                    render_printf("elf: loading /bin/init from ext2 module (%u bytes)\n", (uint32_t)file_size);
+                    loaded = try_load_elf(file_buf, file_size, user_pml4, &entry, &brk);
+                }
+                else
+                {
+                    render_printf("ext2: /bin/init not found in module\n");
+                }
+            }
+        }
+        else
+        {
+            loaded = try_load_elf(mod->address, mod->size, user_pml4, &entry, &brk);
+        }
     }
 
     if (loaded != 0)
