@@ -1,8 +1,11 @@
-<img src="https://raw.githubusercontent.com/drwxor/hextra/refs/heads/master/.images/hextra_logo_white.png" />
+<div align="center">
 
-Hextra is a small experimental Unix-like operating system for x86_64.
-
-It is built from scratch in C with the goal of being simple, understandable, and fun to work on.
+| |
+| :---: |
+| ![Hextra](https://raw.githubusercontent.com/drwxor/hextra/refs/heads/master/.images/hextra_logo_white.png) |
+| Hextra is a small experimental Unix-like operating system for x86_64. |
+| It is built from scratch in C with the goal of being simple, understandable, and fun to work on. |
+</div>
 
 ## Status
 
@@ -18,12 +21,12 @@ Current functionality includes:
 * Basic Libc
 * PS/2 keyboard input
 * Userland
-* kernel/userland shell
+* Kernel/userland shell
 * Basic shell commands
-* ELF Loading
+* ELF loading
 * VFS
-* Scheluder
-* GPT Scanning
+* Scheduler
+* GPT scanning
 * Ring-3
 * Basic serial/debug support
 
@@ -49,9 +52,9 @@ build/hextra.elf
 
 Hextra is currently tested with QEMU and OVMF.
 
-The project includes helper scripts for building, replacing the kernel in the disk image, generating ISO image, and starting QEMU.
+The project includes helper scripts for building, replacing the kernel in the disk image, generating an ISO image, and starting QEMU.
 
-Helper scripts can be ran via [uorix-tools](https://github.com/drwxor/uorix-tools)
+Helper scripts can be run via [uorix-tools](https://github.com/drwxor/uorix-tools).
 
 ## Toolchain
 
@@ -59,8 +62,8 @@ Current development uses:
 
 * clang
 * wild
-* mold 
-* kage 
+* mold
+* kage
 * QEMU
 * OVMF
 * Limine
