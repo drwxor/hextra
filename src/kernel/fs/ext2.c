@@ -22,7 +22,7 @@ read_blocks(struct ext2_fs *fs, uint32_t block_nr, uint32_t count, void *buf)
     if (fs->mod_base)
     {
         uint64_t offset = (uint64_t)block_nr * fs->block_size;
-        if (offset + count * fs->block_size > fs->mod_base + fs->mod_size)
+        if (offset + (uint64_t)count * fs->block_size > fs->mod_size)
             return -1;
         memcpy(buf, (const void *)(fs->mod_base + offset), count * fs->block_size);
         return 0;
@@ -121,7 +121,8 @@ read_inode(struct ext2_fs *fs, uint32_t ino, struct ext2_inode *out)
     uint32_t group = (ino - 1) / fs->inodes_per_group;
     uint32_t index = (ino - 1) % fs->inodes_per_group;
 
-    uint32_t bgd_block = fs->first_data_block + 1;
+    uint32_t bgd_offset = group * sizeof(struct ext2_bgd);
+    uint32_t bgd_block = fs->first_data_block + 1 + bgd_offset / fs->block_size;
     uint8_t *bgd_buf = kmalloc(fs->block_size);
     if (!bgd_buf)
         return -1;
@@ -132,7 +133,7 @@ read_inode(struct ext2_fs *fs, uint32_t ino, struct ext2_inode *out)
         return -1;
     }
 
-    struct ext2_bgd *bgd = (struct ext2_bgd *)(bgd_buf + group * sizeof(struct ext2_bgd));
+    struct ext2_bgd *bgd = (struct ext2_bgd *)(bgd_buf + bgd_offset % fs->block_size);
     uint32_t inode_table = bgd->bg_inode_table;
     kfree(bgd_buf);
 
@@ -157,11 +158,66 @@ read_inode(struct ext2_fs *fs, uint32_t ino, struct ext2_inode *out)
 }
 
 static int
+read_indirect(struct ext2_fs *fs, uint32_t block, uint32_t index, uint32_t *out)
+{
+    if (block == 0)
+    {
+        *out = 0;
+        return 0;
+    }
+
+    uint32_t *ind = kmalloc(fs->block_size);
+    if (!ind)
+        return -1;
+
+    if (read_blocks(fs, block, 1, ind) != 0)
+    {
+        kfree(ind);
+        return -1;
+    }
+
+    *out = ind[index];
+    kfree(ind);
+    return 0;
+}
+
+static int
+map_block(struct ext2_fs *fs, struct ext2_inode *inode, uint32_t block_idx, uint32_t *out)
+{
+    uint32_t per_block = fs->block_size / 4;
+
+    if (block_idx < 12)
+    {
+        *out = inode->i_block[block_idx];
+        return 0;
+    }
+    block_idx -= 12;
+
+    if (block_idx < per_block)
+        return read_indirect(fs, inode->i_block[12], block_idx, out);
+    block_idx -= per_block;
+
+    if (block_idx < per_block * per_block)
+    {
+        uint32_t ind;
+        if (read_indirect(fs, inode->i_block[13], block_idx / per_block, &ind) != 0)
+            return -1;
+        return read_indirect(fs, ind, block_idx % per_block, out);
+    }
+
+    return -1;
+}
+
+static int
 read_inode_data(struct ext2_fs *fs, struct ext2_inode *inode, uint32_t offset, uint32_t size, void *buf)
 {
     uint8_t *dst = buf;
     uint32_t left = size;
     uint32_t pos = offset;
+
+    uint8_t *bbuf = kmalloc(fs->block_size);
+    if (!bbuf)
+        return -1;
 
     while (left > 0)
     {
@@ -172,55 +228,39 @@ read_inode_data(struct ext2_fs *fs, struct ext2_inode *inode, uint32_t offset, u
             chunk = left;
 
         uint32_t phys_block = 0;
-
-        if (block_idx < 12)
-        {
-            phys_block = inode->i_block[block_idx];
-        }
-        else if (block_idx < 12 + (fs->block_size / 4))
-        {
-            uint32_t *ind = kmalloc(fs->block_size);
-            if (!ind)
-                return -1;
-            if (read_blocks(fs, inode->i_block[12], 1, ind) != 0)
-            {
-                kfree(ind);
-                return -1;
-            }
-            phys_block = ind[block_idx - 12];
-            kfree(ind);
-        }
-        else
-        {
-            return -1;
-        }
-
-        if (phys_block == 0)
-            return -1;
-
-        uint8_t *bbuf = kmalloc(fs->block_size);
-        if (!bbuf)
-            return -1;
-        if (read_blocks(fs, phys_block, 1, bbuf) != 0)
+        if (map_block(fs, inode, block_idx, &phys_block) != 0)
         {
             kfree(bbuf);
             return -1;
         }
-        for (uint32_t i = 0; i < chunk; i++)
-            dst[i] = bbuf[block_off + i];
-        kfree(bbuf);
+
+        if (phys_block == 0)
+        {
+            memset(dst, 0, chunk);
+        }
+        else
+        {
+            if (read_blocks(fs, phys_block, 1, bbuf) != 0)
+            {
+                kfree(bbuf);
+                return -1;
+            }
+            memcpy(dst, bbuf + block_off, chunk);
+        }
 
         dst += chunk;
         pos += chunk;
         left -= chunk;
     }
+
+    kfree(bbuf);
     return 0;
 }
 
 static uint32_t
 lookup_in_dir(struct ext2_fs *fs, struct ext2_inode *dir, const char *name)
 {
-    if (!(dir->i_mode & EXT2_S_IFDIR))
+    if ((dir->i_mode & EXT2_S_IFMT) != EXT2_S_IFDIR)
         return 0;
 
     uint32_t size = dir->i_size;
@@ -303,7 +343,7 @@ ext2_read_file(struct ext2_fs *fs, const char *path, void **out_buf)
             return (uint64_t)-1;
     }
 
-    if (!(inode.i_mode & EXT2_S_IFREG))
+    if ((inode.i_mode & EXT2_S_IFMT) != EXT2_S_IFREG)
     {
         render_printf("ext2: not a regular file\n");
         return (uint64_t)-1;
@@ -388,7 +428,7 @@ ext2_vfs_readdir(struct vfs_node *node, uint32_t index, struct dirent *out)
     if (read_inode(fs, ino, &inode) != 0)
         return -1;
 
-    if (!(inode.i_mode & EXT2_S_IFDIR))
+    if ((inode.i_mode & EXT2_S_IFMT) != EXT2_S_IFDIR)
         return -1;
 
     uint32_t size = inode.i_size;
@@ -435,12 +475,53 @@ ext2_vfs_readdir(struct vfs_node *node, uint32_t index, struct dirent *out)
     return -1;
 }
 
+static int
+ext2_vfs_stat(struct vfs_node *node, struct stat *out)
+{
+    if (!node || !node->data || !out)
+        return -1;
+
+    struct ext2_vfs_data *vfs_data = (struct ext2_vfs_data *)node->data;
+    struct ext2_fs *fs = vfs_data->fs;
+
+    struct ext2_inode inode;
+    if (read_inode(fs, vfs_data->ino, &inode) != 0)
+        return -1;
+
+    memset(out, 0, sizeof(*out));
+    out->st_dev = fs->mod_base ? 0 : fs->start_lba;
+    out->st_ino = vfs_data->ino;
+    out->st_mode = inode.i_mode;
+    out->st_nlink = inode.i_links_count;
+    out->st_uid = inode.i_uid;
+    out->st_gid = inode.i_gid;
+    out->st_size = inode.i_size;
+    out->st_blksize = fs->block_size;
+    out->st_blocks = inode.i_blocks;
+    out->st_atime = inode.i_atime;
+    out->st_mtime = inode.i_mtime;
+    out->st_ctime = inode.i_ctime;
+    return 0;
+}
+
+static void
+ext2_vfs_release(struct vfs_node *node)
+{
+    if (!node)
+        return;
+
+    kfree(node->data);
+    kfree(node);
+}
+
 static struct file_ops ext2_file_ops = {
     .open = 0,
     .close = ext2_vfs_close,
     .read = ext2_vfs_read,
     .write = ext2_vfs_write,
-    .readdir = ext2_vfs_readdir
+    .readdir = ext2_vfs_readdir,
+    .stat = ext2_vfs_stat,
+    .release = ext2_vfs_release
 };
 
 struct vfs_node *
@@ -467,160 +548,11 @@ ext2_vfs_node(struct ext2_fs *fs, uint32_t ino)
         return 0;
     }
 
-    node->flags = (inode.i_mode & 0xF000) == EXT2_S_IFDIR ? S_IFDIR : S_IFREG;
+    node->name[0] = 0;
+    node->flags = inode.i_mode & EXT2_S_IFMT;
     node->size = inode.i_size;
     node->ops = &ext2_file_ops;
     node->data = vfs_data;
 
     return node;
-}
-
-static
-int
-ext2_path_resolve(const char *path, struct ext2_inode *out_inode)
-{
-    if (!path || !out_inode || !rootfs)
-        return -1;
-
-    struct ext2_inode inode;
-    if (path[0] == '/') {
-        if (read_inode(rootfs, 2, &inode) != 0)
-            return -1;
-    } else {
-        struct process *proc = process_current();
-        if (!proc)
-            return -1;
-
-        if (proc->cwd[0] == '/') {
-            if (read_inode(rootfs, 2, &inode) != 0)
-                return -1;
-            const char *p = proc->cwd + 1;
-            char component[64];
-            while (*p) {
-                uint32_t i = 0;
-                while (*p && *p != '/' && i < sizeof(component) - 1)
-                    component[i++] = *p++;
-                component[i] = 0;
-                if (*p == '/')
-                    p++;
-                if (component[0] == 0)
-                    continue;
-                uint32_t next = lookup_in_dir(rootfs, &inode, component);
-                if (next == 0)
-                    return -1;
-                if (read_inode(rootfs, next, &inode) != 0)
-                    return -1;
-            }
-        } else {
-            return -1;
-        }
-    }
-
-    const char *p = path;
-    if (path[0] == '/')
-        p++;
-
-    char component[64];
-
-    while (*p)
-    {
-        uint32_t i = 0;
-        while (*p && *p != '/' && i < sizeof(component) - 1)
-            component[i++] = *p++;
-        component[i] = 0;
-        if (*p == '/')
-            p++;
-
-        if (component[0] == 0)
-            continue;
-
-        if (component[0] == '.' && component[1] == 0)
-            continue;
-
-        if (component[0] == '.' && component[1] == '.' && component[2] == 0)
-        {
-            uint32_t parent = lookup_in_dir(rootfs, &inode, "..");
-            if (parent == 0)
-                return -1;
-            if (read_inode(rootfs, parent, &inode) != 0)
-                return -1;
-            continue;
-        }
-
-        uint32_t next = lookup_in_dir(rootfs, &inode, component);
-        if (next == 0)
-            return -1;
-        if (read_inode(rootfs, next, &inode) != 0)
-            return -1;
-    }
-
-    *out_inode = inode;
-    return 0;
-}
-
-int
-ext2_chdir(const char *path)
-{
-    if (!path)
-        return -1;
-
-    struct ext2_inode inode;
-    if (ext2_path_resolve(path, &inode) != 0)
-        return -1;
-
-    if (!(inode.i_mode & EXT2_S_IFDIR))
-        return -1;
-
-    struct process *proc = process_current();
-    if (!proc)
-        return -1;
-
-    if (path[0] == '/') {
-        uint32_t i = 0;
-        while (path[i] && i < MAX_PATH - 1)
-        {
-            proc->cwd[i] = path[i];
-            i++;
-        }
-        proc->cwd[i] = 0;
-    } else {
-        uint32_t len = 0;
-        while (proc->cwd[len])
-            len++;
-
-        if (len > 0 && proc->cwd[len - 1] != '/')
-        {
-            proc->cwd[len++] = '/';
-        }
-
-        uint32_t i = 0;
-        while (path[i] && len < MAX_PATH - 1)
-        {
-            proc->cwd[len++] = path[i++];
-        }
-        proc->cwd[len] = 0;
-    }
-
-    return 0;
-}
-
-int
-ext2_getcwd(char *buf, uint64_t size)
-{
-    if (!buf || size == 0)
-        return -1;
-
-    struct process *proc = process_current();
-    if (!proc)
-        return -1;
-
-    uint32_t i = 0;
-    while (proc->cwd[i] && i < size - 1)
-    {
-        buf[i] = proc->cwd[i];
-        i++;
-    }
-    buf[i] = 0;
-
-    return 0;
 }

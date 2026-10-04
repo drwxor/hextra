@@ -163,9 +163,7 @@ kmain(void)
             rootfs = fs;
 
             vfs_init();
-            struct vfs_node *root = ext2_vfs_node(fs, 2);
-            if (root)
-                vfs_set_root(root);
+            vfs_set_root_fs(fs);
 
             void *file_buf = 0;
             uint64_t file_size = ext2_read_file(fs, "/bin/init", &file_buf);
@@ -200,9 +198,7 @@ kmain(void)
             if (rootfs)
             {
                 vfs_init();
-                struct vfs_node *root = ext2_vfs_node(rootfs, 2);
-                if (root)
-                    vfs_set_root(root);
+                vfs_set_root_fs(rootfs);
 
                 void *file_buf = 0;
                 uint64_t file_size = ext2_read_file(rootfs, "/bin/init", &file_buf);

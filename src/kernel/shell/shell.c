@@ -71,7 +71,7 @@ shell_command_cd(const char *path)
         return;
     }
 
-    if (ext2_chdir(path) != 0)
+    if (vfs_chdir(path) != 0)
     {
         user_puts("cd: cannot change directory: ");
         user_puts(path);

@@ -219,6 +219,25 @@ copy_address_space(struct process *dst, struct process *src)
                 paging_zero_page(child_pt);
                 memcpy(paging_phys_to_virt(child_pt), paging_phys_to_virt(parent_pt), PAGE_SIZE);
                 child_pd_ptr[k] = child_pt | (parent_pd_ptr[k] & ~PTE_ADDR_MASK);
+
+                uint64_t *child_pt_ptr = (uint64_t *)paging_phys_to_virt(child_pt);
+
+                for (int l = 0; l < 512; l++)
+                {
+                    if (!(child_pt_ptr[l] & PTE_PRESENT))
+                        continue;
+
+                    uint64_t page = pmm_alloc_page();
+                    if (!page)
+                    {
+                        paging_free_user_as(child_pml4);
+                        pmm_free_page(child_pml4);
+                        return -1;
+                    }
+
+                    memcpy(paging_phys_to_virt(page), paging_phys_to_virt(child_pt_ptr[l] & PTE_ADDR_MASK), PAGE_SIZE);
+                    child_pt_ptr[l] = page | (child_pt_ptr[l] & ~PTE_ADDR_MASK);
+                }
             }
         }
     }
@@ -252,19 +271,11 @@ sys_fork(struct trapframe *tf)
 
     for (int i = 0; i < MAX_FDS; i++)
     {
-        if (parent->fds[i])
-        {
-            struct file *f = kmalloc(sizeof(*f));
-            if (!f)
-            {
-                process_discard(child);
-                tf->rax = (uint64_t)-1;
-                return tf;
-            }
-            *f = *parent->fds[i];
-            f->refcount++;
-            child->fds[i] = f;
-        }
+        vfs_file_put(child->fds[i]);
+        child->fds[i] = parent->fds[i];
+
+        if (child->fds[i])
+            child->fds[i]->refcount++;
     }
 
     memcpy(child->cwd, parent->cwd, MAX_PATH);
@@ -406,6 +417,7 @@ sys_wait(struct trapframe *tf, int pid)
     }
 
     parent->state = PROC_BLOCKED;
+    parent->wait_pid = pid;
     child->state = PROC_RUNNING;
 
     return process_switch(child);
@@ -415,6 +427,8 @@ static
 struct trapframe *
 sys_exit(struct trapframe *tf, int status)
 {
+    (void)tf;
+
     struct process *child = process_current();
     struct process *parent = process_find(child->ppid);
 
@@ -429,19 +443,35 @@ sys_exit(struct trapframe *tf, int status)
             __asm__ volatile ("hlt");
     }
 
-    parent->state = PROC_RUNNING;
-
-    if (!parent->tf)
+    if (parent->state == PROC_BLOCKED && parent->wait_pid == child->pid)
     {
-        render_printf("\nprocess %d: parent has no trapframe\n", child->pid);
+        if (!parent->tf)
+        {
+            render_printf("\nprocess %d: parent has no trapframe\n", child->pid);
 
-        for (;;)
-            __asm__ volatile ("hlt");
+            for (;;)
+                __asm__ volatile ("hlt");
+        }
+
+        parent->tf->rax = (uint64_t)status;
+        parent->wait_pid = 0;
+
+        struct trapframe *next = process_switch(parent);
+        process_discard(child);
+        return next;
     }
 
-    parent->tf->rax = (uint64_t)status;
+    struct process *procs = process_get_table();
+    for (int i = 0; i < MAX_PROCS; i++)
+    {
+        if (procs[i].state == PROC_RUNNABLE)
+            return process_switch(&procs[i]);
+    }
 
-    return process_switch(parent);
+    render_printf("\nprocess %d: exited, nothing left to run\n", child->pid);
+
+    for (;;)
+        __asm__ volatile ("hlt");
 }
 
 struct trapframe *
@@ -510,7 +540,7 @@ syscall_handler(struct trapframe *tf)
 
         case SYS_OPEN:
         {
-            char path[128];
+            char path[MAX_PATH];
             if (copyin_str(path, sizeof(path), (const char *)tf->rdi) != 0)
             {
                 tf->rax = (uint64_t)-1;
@@ -553,13 +583,13 @@ syscall_handler(struct trapframe *tf)
 
         case SYS_CHDIR:
         {
-            char path[128];
+            char path[MAX_PATH];
             if (copyin_str(path, sizeof(path), (const char *)tf->rdi) != 0)
             {
                 tf->rax = (uint64_t)-1;
                 return tf;
             }
-            tf->rax = ext2_chdir(path);
+            tf->rax = vfs_chdir(path);
             return tf;
         }
 
@@ -567,9 +597,25 @@ syscall_handler(struct trapframe *tf)
         {
             char *buf = (char *)tf->rdi;
             uint64_t size = tf->rsi;
-            tf->rax = ext2_getcwd(buf, size);
+            tf->rax = vfs_getcwd(buf, size);
             return tf;
         }
+
+        case SYS_STAT:
+        {
+            char path[MAX_PATH];
+            if (copyin_str(path, sizeof(path), (const char *)tf->rdi) != 0)
+            {
+                tf->rax = (uint64_t)-1;
+                return tf;
+            }
+            tf->rax = vfs_stat(path, (struct stat *)tf->rsi);
+            return tf;
+        }
+
+        case SYS_FSTAT:
+            tf->rax = vfs_fstat((int)tf->rdi, (struct stat *)tf->rsi);
+            return tf;
 
         case SYS_YIELD:
             tf->rax = 0;

@@ -48,6 +48,7 @@ process_create(void)
 
         p->tf = 0;
         p->exit_status = 0;
+        p->wait_pid = 0;
 
         for (int i = 0; i < MAX_FDS; i++)
             p->fds[i] = 0;
@@ -73,7 +74,7 @@ process_discard(struct process *p)
     {
         if (p->fds[i])
         {
-            vfs_close(i);
+            vfs_file_put(p->fds[i]);
             p->fds[i] = 0;
         }
     }

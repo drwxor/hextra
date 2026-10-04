@@ -4,6 +4,7 @@
 #define _ERRNO_H
 
 #define ENOENT 2
+#define EBADF 9
 #define ENOMEM 12
 #define EFAULT 14
 #define EAGAIN 11

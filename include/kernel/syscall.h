@@ -9,6 +9,8 @@
 #define SYS_WRITE 1
 #define SYS_CLEAR 2
 #define SYS_MEMINFO 3
+#define SYS_STAT 4
+#define SYS_FSTAT 5
 #define SYS_BRK 12
 #define SYS_GETPID 39
 #define SYS_FORK 57

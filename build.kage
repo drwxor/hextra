@@ -97,6 +97,7 @@ compile ucc src/libc/string.c > build/object/libc/string.o;
 compile ucc src/libc/stdlib.c > build/object/libc/stdlib.o;
 compile ucc src/libc/stdio.c > build/object/libc/stdio.o;
 compile ucc src/libc/dirent.c > build/object/libc/dirent.o;
+compile ucc src/libc/stat.c > build/object/libc/stat.o;
 
 # userland objects
 compile ucc src/userland/init.c > build/object/userland/init.o;
@@ -106,11 +107,11 @@ compile ucc src/userland/shell/yes.c > build/object/userland/shell/yes.o;
 compile ucc src/userland/shell/libctest.c > build/object/userland/shell/libctest.o;
 
 # userland ELFs
-compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/libc/errno.o build/object/libc/unistd.o build/object/libc/string.o build/object/libc/stdlib.o build/object/libc/stdio.o build/object/libc/dirent.o build/object/userland/init.o > build/userland/init.elf;
+compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/libc/errno.o build/object/libc/unistd.o build/object/libc/string.o build/object/libc/stdlib.o build/object/libc/stdio.o build/object/libc/dirent.o build/object/libc/stat.o build/object/userland/init.o > build/userland/init.elf;
 
-compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/libc/errno.o build/object/libc/unistd.o build/object/libc/string.o build/object/libc/stdlib.o build/object/libc/stdio.o build/object/libc/dirent.o build/object/userland/shell/main.o > build/userland/shell/main.elf;
-compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/libc/errno.o build/object/libc/unistd.o build/object/libc/string.o build/object/libc/stdlib.o build/object/libc/stdio.o build/object/libc/dirent.o build/object/userland/shell/yes.o > build/userland/shell/yes.elf;
-compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/libc/errno.o build/object/libc/unistd.o build/object/libc/string.o build/object/libc/stdlib.o build/object/libc/stdio.o build/object/libc/dirent.o build/object/userland/shell/libctest.o > build/userland/shell/libctest.elf;
+compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/libc/errno.o build/object/libc/unistd.o build/object/libc/string.o build/object/libc/stdlib.o build/object/libc/stdio.o build/object/libc/dirent.o build/object/libc/stat.o build/object/userland/shell/main.o > build/userland/shell/main.elf;
+compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/libc/errno.o build/object/libc/unistd.o build/object/libc/string.o build/object/libc/stdlib.o build/object/libc/stdio.o build/object/libc/dirent.o build/object/libc/stat.o build/object/userland/shell/yes.o > build/userland/shell/yes.elf;
+compile uld build/object/libc/crt0.o build/object/libc/syscall.o build/object/libc/errno.o build/object/libc/unistd.o build/object/libc/string.o build/object/libc/stdlib.o build/object/libc/stdio.o build/object/libc/dirent.o build/object/libc/stat.o build/object/userland/shell/libctest.o > build/userland/shell/libctest.elf;
 
 compile nasm src/kernel/init_elf.asm @ build/userland/init.elf > build/object/init/elf.o;
 

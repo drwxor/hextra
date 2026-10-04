@@ -61,6 +61,7 @@ struct process
     struct trapframe *tf;
 
     int exit_status;
+    int wait_pid;
 
     struct file *fds[MAX_FDS];
     char cwd[MAX_PATH];
