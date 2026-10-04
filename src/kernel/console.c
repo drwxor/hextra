@@ -38,24 +38,6 @@ console_read(struct vfs_node *node, uint64_t offset, void *buf, size_t size)
     return 1;
 }
 
-// static int
-// console_write(struct vfs_node *node, uint64_t offset, const void *buf, size_t size)
-// {
-//     (void)node;
-//     (void)offset;
-
-//     const char *src = (const char *)buf;
-//     for (size_t i = 0; i < size; i++)
-//     {
-//         char c = src[i];
-//         render_putc(c, 0xFFFFFF);
-//         if (c == '\n')
-//             render_putc('\r', 0xFFFFFF);
-//     }
-
-//     return (int)size;
-// }
-
 static int
 console_write(struct vfs_node *node, uint64_t offset, const void *buf, size_t size)
 {
@@ -73,6 +55,7 @@ console_write(struct vfs_node *node, uint64_t offset, const void *buf, size_t si
             render_putc('\r', 0xFFFFFF);
     }
 
+    render_flush();
     return (int)size;
 }
 

@@ -56,100 +56,187 @@ fgets(char *s, int size, void *unused)
     return s;
 }
 
+struct fmt_out
+{
+    char *buf;
+    size_t size;
+    size_t len;
+};
+
 static
 void
-fmt_uint(char *buf, int *len, unsigned long v, unsigned base)
+out_char(struct fmt_out *o, char c)
+{
+    if (o->buf && o->len + 1 < o->size)
+        o->buf[o->len] = c;
+    o->len++;
+}
+
+static
+void
+out_field(struct fmt_out *o, const char *s, size_t n, int width, int left, char pad)
+{
+    int fill = width > (int)n ? width - (int)n : 0;
+
+    if (pad == '0' && n > 0 && s[0] == '-')
+    {
+        out_char(o, '-');
+        s++;
+        n--;
+    }
+
+    if (!left)
+        while (fill-- > 0)
+            out_char(o, pad);
+
+    for (size_t i = 0; i < n; i++)
+        out_char(o, s[i]);
+
+    if (left)
+        while (fill-- > 0)
+            out_char(o, ' ');
+}
+
+static
+size_t
+fmt_uint(char *buf, unsigned long v, unsigned base)
 {
     char tmp[32];
-    int n = 0;
-    if (v == 0) {
-        buf[(*len)++] = '0';
-        return;
-    }
-    while (v) {
+    size_t n = 0;
+    size_t len = 0;
+
+    do {
         unsigned d = v % base;
         tmp[n++] = (d < 10) ? ('0' + d) : ('a' + d - 10);
         v /= base;
-    }
+    } while (v);
+
     while (n--)
-        buf[(*len)++] = tmp[n];
+        buf[len++] = tmp[n];
+
+    return len;
 }
 
 int
 vsnprintf(char *out, size_t n, const char *fmt, va_list ap)
 {
-    char tmp[256];
-    int len = 0;
-    (void)n;
+    struct fmt_out o = { out, n, 0 };
 
-    while (*fmt && len < (int)sizeof(tmp) - 1)
+    while (*fmt)
     {
         if (*fmt != '%')
         {
-            tmp[len++] = *fmt++;
+            out_char(&o, *fmt++);
             continue;
         }
         fmt++;
+
+        int left = 0;
+        char pad = ' ';
+        int width = 0;
+        int is_long = 0;
+
+        for (;; fmt++)
+        {
+            if (*fmt == '-')
+                left = 1;
+            else if (*fmt == '0')
+                pad = '0';
+            else
+                break;
+        }
+
+        if (*fmt == '*')
+        {
+            width = va_arg(ap, int);
+            fmt++;
+        }
+        else
+        {
+            while (*fmt >= '0' && *fmt <= '9')
+                width = width * 10 + (*fmt++ - '0');
+        }
+
+        while (*fmt == 'l')
+        {
+            is_long = 1;
+            fmt++;
+        }
+
+        if (left)
+            pad = ' ';
+
+        char num[34];
+        size_t len;
+
         switch (*fmt)
         {
             case '%':
-                tmp[len++] = '%';
+                out_char(&o, '%');
                 break;
             case 'c':
-                tmp[len++] = (char)va_arg(ap, int);
+                num[0] = (char)va_arg(ap, int);
+                out_field(&o, num, 1, width, left, ' ');
                 break;
             case 's':
             {
                 const char *s = va_arg(ap, const char *);
                 if (!s)
                     s = "(null)";
-                while (*s && len < (int)sizeof(tmp) - 1)
-                    tmp[len++] = *s++;
+                out_field(&o, s, strlen(s), width, left, ' ');
                 break;
             }
             case 'd':
+            case 'i':
             {
-                long v = va_arg(ap, int);
+                long v = is_long ? va_arg(ap, long) : va_arg(ap, int);
+                len = 0;
                 if (v < 0)
                 {
-                    tmp[len++] = '-';
-                    fmt_uint(tmp, &len, (unsigned long)(-v), 10);
+                    num[len++] = '-';
+                    len += fmt_uint(num + len, (unsigned long)(-v), 10);
                 }
                 else
                 {
-                    fmt_uint(tmp, &len, (unsigned long)v, 10);
+                    len = fmt_uint(num, (unsigned long)v, 10);
                 }
+                out_field(&o, num, len, width, left, pad);
                 break;
             }
             case 'u':
-                fmt_uint(tmp, &len, va_arg(ap, unsigned int), 10);
-                break;
             case 'x':
-                fmt_uint(tmp, &len, va_arg(ap, unsigned int), 16);
-                break;
-            case 'p':
+            case 'o':
             {
-                tmp[len++] = '0';
-                tmp[len++] = 'x';
-                fmt_uint(tmp, &len, (unsigned long)va_arg(ap, void *), 16);
+                unsigned long v = is_long ? va_arg(ap, unsigned long) : va_arg(ap, unsigned int);
+                unsigned base = *fmt == 'u' ? 10 : *fmt == 'x' ? 16 : 8;
+                len = fmt_uint(num, v, base);
+                out_field(&o, num, len, width, left, pad);
                 break;
             }
+            case 'p':
+            {
+                num[0] = '0';
+                num[1] = 'x';
+                len = 2 + fmt_uint(num + 2, (unsigned long)va_arg(ap, void *), 16);
+                out_field(&o, num, len, width, left, ' ');
+                break;
+            }
+            case 0:
+                out_char(&o, '%');
+                continue;
             default:
-                tmp[len++] = '%';
-                tmp[len++] = *fmt;
+                out_char(&o, '%');
+                out_char(&o, *fmt);
                 break;
         }
-        if (*fmt)
-            fmt++;
+
+        fmt++;
     }
 
-    tmp[len] = 0;
-    if (out && n) {
-        size_t copy = (size_t)len < n - 1 ? (size_t)len : n - 1;
-        memcpy(out, tmp, copy);
-        out[copy] = 0;
-    }
-    return len;
+    if (out && n)
+        out[o.len < n ? o.len : n - 1] = 0;
+
+    return (int)o.len;
 }
 
 int
@@ -165,7 +252,7 @@ snprintf(char *buf, size_t n, const char *fmt, ...)
 int
 vprintf(const char *fmt, va_list ap)
 {
-    char buf[256];
+    char buf[1024];
     int n = vsnprintf(buf, sizeof(buf), fmt, ap);
     if (n < 0)
         return n;

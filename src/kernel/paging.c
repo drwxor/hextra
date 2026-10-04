@@ -325,6 +325,6 @@ paging_create_user_as(uint64_t *user_stack_top)
     if (user_stack_top)
         *user_stack_top = USER_STACK_VIRT;
 
-    render_printf("user as: pml4=%x stack=%x\n", user_pml4_phys, USER_STACK_VIRT);
+    debug_printf("user as: pml4=%x stack=%x\n", user_pml4_phys, USER_STACK_VIRT);
     return user_pml4_phys;
 }

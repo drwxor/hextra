@@ -18,8 +18,11 @@ void render_clear(uint32_t color);
 
 void render_putc(char c, uint32_t color);
 void render_puts(const char *s, uint32_t color);
+void render_flush(void);
 
 void render_printf(const char *fmt, ...);
 void render_printf_colored(const char *fmt, uint32_t color, ...);
+
+void debug_printf(const char *fmt, ...);
 
 #endif

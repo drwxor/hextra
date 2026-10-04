@@ -336,7 +336,7 @@ ext2_read_file(struct ext2_fs *fs, const char *path, void **out_buf)
         uint32_t next = lookup_in_dir(fs, &inode, component);
         if (next == 0)
         {
-            render_printf("ext2: path component '%s' not found\n", component);
+            debug_printf("ext2: path component '%s' not found\n", component);
             return (uint64_t)-1;
         }
         if (read_inode(fs, next, &inode) != 0)

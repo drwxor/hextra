@@ -75,10 +75,42 @@ char
 keyboard_getc(void)
 {
     static int shift = 0;
+    static int ctrl = 0;
+    static int extended = 0;
 
     for (;;)
     {
         uint8_t scancode = keyboard_read_scancode();
+
+        if (scancode == 0xE0)
+        {
+            extended = 1;
+            continue;
+        }
+
+        if (extended)
+        {
+            extended = 0;
+
+            if (scancode == 0x1D)
+                ctrl = 1;
+            else if (scancode == 0x9D)
+                ctrl = 0;
+            else if (scancode == 0x48)
+                return 0x10;
+            else if (scancode == 0x50)
+                return 0x0E;
+            else if (scancode == 0x4B)
+                return 0x02;
+            else if (scancode == 0x4D)
+                return 0x06;
+            else if (scancode == 0x1C)
+                return '\n';
+            else if (scancode == 0x35)
+                return '/';
+
+            continue;
+        }
 
         if (scancode == 0x2A || scancode == 0x36)
         {
@@ -92,18 +124,34 @@ keyboard_getc(void)
             continue;
         }
 
-        if (scancode & 0x80)
+        if (scancode == 0x1D)
+        {
+            ctrl = 1;
             continue;
+        }
 
-        if (scancode >= 128)
+        if (scancode == 0x9D)
+        {
+            ctrl = 0;
+            continue;
+        }
+
+        if (scancode & 0x80)
             continue;
 
         char c;
 
-        if (shift)
+        if (shift && scancode_shift[scancode])
             c = scancode_shift[scancode];
         else
             c = scancode_ascii[scancode];
+
+        if (ctrl && c != 0)
+        {
+            char lower = scancode_ascii[scancode];
+            if (lower >= 'a' && lower <= 'z')
+                return lower & 0x1F;
+        }
 
         if (c != 0)
             return c;

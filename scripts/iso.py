@@ -9,11 +9,11 @@ import tempfile
 from typing import NoReturn
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_KERNEL = ROOT / "build" / "hextra.elf"
 DEFAULT_USERLAND = ROOT / "build" / "userland"
 DEFAULT_SHELL_DIR = DEFAULT_USERLAND / "shell"
+DEFAULT_BIN_DIR = DEFAULT_USERLAND / "bin"
 DEFAULT_INIT = DEFAULT_USERLAND / "init.elf"
 DEFAULT_ISO_ROOT = ROOT / "build" / "iso"
 DEFAULT_OUTPUT = ROOT / "build" / "hextra.iso"
@@ -24,7 +24,6 @@ LIMINE_FILES = (
     "limine-uefi-cd.bin",
     "BOOTX64.EFI",
 )
-
 
 class IsoError(RuntimeError):
     pass
@@ -118,6 +117,13 @@ def parse_args() -> argparse.Namespace:
         "(default: build/userland/shell)",
     )
     parser.add_argument(
+        "--bin-dir",
+        type=Path,
+        default=DEFAULT_BIN_DIR,
+        help="directory of userland program ELFs installed into /bin "
+        "(default: build/userland/bin)",
+    )
+    parser.add_argument(
         "--init",
         dest="init_elf",
         type=Path,
@@ -150,8 +156,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def create_ext2_fs(shell_dir: Path, init_elf_path: Path, main_shell_path: Path, output_path: Path) -> Path:
-    """Create an ext2 filesystem image with the shell binary at /bin/sh."""
+def create_ext2_fs(shell_dir: Path, init_elf_path: Path, main_shell_path: Path, output_path: Path,
+                   programs_dir: Path = DEFAULT_BIN_DIR) -> Path:
+    """Create an ext2 filesystem image with the shell at /bin/sh and every
+    program from programs_dir at /bin/<name> (without the .elf suffix)."""
     ext2_img = output_path.parent / "hextra.ext2"
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -162,6 +170,11 @@ def create_ext2_fs(shell_dir: Path, init_elf_path: Path, main_shell_path: Path, 
         shutil.copy2(main_shell_path, bin_dir / "sh")
 
         shutil.copy2(init_elf_path, bin_dir / "init")
+
+        if programs_dir.is_dir():
+            for program in sorted(programs_dir.glob("*.elf")):
+                check_elf(program, "userland program")
+                shutil.copy2(program, bin_dir / program.stem)
 
         run([
             "mkfs.ext2",
@@ -178,6 +191,7 @@ def main() -> int:
 
     kernel = args.kernel if args.kernel.is_absolute() else ROOT / args.kernel
     shell_dir = args.shell_dir if args.shell_dir.is_absolute() else ROOT / args.shell_dir
+    bin_dir = args.bin_dir if args.bin_dir.is_absolute() else ROOT / args.bin_dir
     init_elf = args.init_elf if args.init_elf.is_absolute() else ROOT / args.init_elf
     output = args.output if args.output.is_absolute() else ROOT / args.output
     iso_root = args.iso_root if args.iso_root.is_absolute() else ROOT / args.iso_root
@@ -229,7 +243,7 @@ def main() -> int:
     shutil.copytree(shell_dir, shell_dst)
 
     main_shell = shell_dir / "main.elf"
-    ext2_img = create_ext2_fs(shell_dir, init_elf, main_shell, output)
+    ext2_img = create_ext2_fs(shell_dir, init_elf, main_shell, output, bin_dir)
     shutil.copy2(ext2_img, boot_dir / "hextra.ext2")
 
     for name in ("limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin"):

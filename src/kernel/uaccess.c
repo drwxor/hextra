@@ -100,9 +100,6 @@ copyin(void *dst, const void *user_src, size_t len)
         if (phys == 0)
             return -1;
 
-        // const void *kaddr = paging_phys_to_virt(phys);
-        // memcpy(d, (const uint8_t *)kaddr + page_offset, chunk);
-
         const void *kaddr = paging_phys_to_virt(phys);
         memcpy(d, kaddr, chunk);
 
@@ -133,13 +130,6 @@ copyout(void *user_dst, const void *src, size_t len)
         size_t chunk = PAGE_SIZE - page_offset;
         if (chunk > remaining)
             chunk = remaining;
-
-        // uint64_t phys = paging_virt_to_phys(dst);
-        // if (phys == 0)
-        //     return -1;
-
-        // void *kaddr = paging_phys_to_virt(phys);
-        // memcpy((uint8_t *)kaddr + page_offset, s, chunk);
 
         uint64_t phys = paging_virt_to_phys(dst);
         if (phys == 0)

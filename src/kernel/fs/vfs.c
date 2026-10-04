@@ -124,6 +124,12 @@ vfs_normalize(const char *path, char *out)
     return 0;
 }
 
+int
+vfs_abspath(const char *path, char *out)
+{
+    return vfs_normalize(path, out);
+}
+
 static struct vfs_node *
 vfs_get_child(struct vfs_node *parent, const char *name)
 {

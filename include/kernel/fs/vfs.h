@@ -84,6 +84,7 @@ int vfs_readdir(int fd, uint32_t index, struct dirent *out);
 int vfs_stat(const char *path, struct stat *out);
 int vfs_fstat(int fd, struct stat *out);
 int vfs_chdir(const char *path);
+int vfs_abspath(const char *path, char *out);
 int vfs_getcwd(char *buf, uint64_t size);
 void vfs_file_put(struct file *f);
 

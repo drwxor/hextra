@@ -51,7 +51,7 @@ copy_argv_envp(const char *const *user_argv, char ***out_argv, char ***out_envp)
         }
     }
 
-    render_printf("exec argv: argc=%d\n", argc);
+    debug_printf("exec argv: argc=%d\n", argc);
 
     char **kargv = kmalloc((argc + 1) * sizeof(char *));
     if (!kargv)
@@ -296,9 +296,12 @@ sys_fork(struct trapframe *tf)
 struct trapframe *
 sys_execve(struct trapframe *tf, const char *user_path, char *const *user_argv, char *const *user_envp)
 {
-    char path[128];
+    char upath[MAX_PATH];
+    char path[MAX_PATH];
 
-    if (copyin_str(path, sizeof(path), user_path) != 0)
+    (void)user_envp;
+
+    if (copyin_str(upath, sizeof(upath), user_path) != 0 || vfs_abspath(upath, path) != 0)
     {
         render_printf("exec: copy path failed\n");
         tf->rax = (uint64_t)-1;
@@ -329,13 +332,13 @@ sys_execve(struct trapframe *tf, const char *user_path, char *const *user_argv, 
 
     if (file_size == (uint64_t)-1 || file_buf == 0)
     {
-        render_printf("exec: read '%s' failed\n", path);
+        debug_printf("exec: read '%s' failed\n", path);
         free_argv(kargv);
         tf->rax = (uint64_t)-1;
         return tf;
     }
 
-    render_printf("exec: loaded '%s', size=%x\n", path, file_size);
+    debug_printf("exec: loaded '%s', size=%x\n", path, file_size);
 
     uint64_t user_stack_top = 0;
 
@@ -365,7 +368,31 @@ sys_execve(struct trapframe *tf, const char *user_path, char *const *user_argv, 
         return tf;
     }
 
-    render_printf("exec: ELF okay entry=%x\n", entry);
+    debug_printf("exec: ELF okay entry=%x\n", entry);
+
+    int argc = 0;
+    uint64_t strings_size = 0;
+    while (kargv && kargv[argc])
+    {
+        strings_size += strlen(kargv[argc]) + 1;
+        argc++;
+    }
+
+    uint64_t words = (uint64_t)argc + 3;
+    uint64_t sp = user_stack_top - ((strings_size + 15) & ~15ULL);
+    uint64_t strings_base = sp;
+    sp -= words * 8;
+    sp &= ~15ULL;
+
+    if (user_stack_top - sp > (USER_STACK_PAGES * PAGE_SIZE) / 2)
+    {
+        render_printf("exec: argument list too long\n");
+        paging_free_user_as(user_pml4);
+        pmm_free_page(user_pml4);
+        free_argv(kargv);
+        tf->rax = (uint64_t)-1;
+        return tf;
+    }
 
     struct process *current = process_current();
 
@@ -380,14 +407,32 @@ sys_execve(struct trapframe *tf, const char *user_path, char *const *user_argv, 
     current->brk_start = brk;
     current->tf = tf;
 
-    uint64_t stack_ptr = user_stack_top;
-
     tf->rip = entry;
-    tf->rsp = user_stack_top;
+    tf->rsp = sp;
     tf->rax = 0;
 
     paging_load_cr3(user_pml4);
     tss_set_rsp0(current->kstack_top);
+
+    uint64_t *vec = kmalloc(words * 8);
+    if (vec)
+    {
+        uint64_t str = strings_base;
+
+        vec[0] = (uint64_t)argc;
+        for (int i = 0; i < argc; i++)
+        {
+            uint64_t len = strlen(kargv[i]) + 1;
+            copyout((void *)str, kargv[i], len);
+            vec[1 + i] = str;
+            str += len;
+        }
+        vec[1 + argc] = 0;
+        vec[2 + argc] = 0;
+
+        copyout((void *)sp, vec, words * 8);
+        kfree(vec);
+    }
 
     free_argv(kargv);
     return tf;
@@ -627,6 +672,7 @@ syscall_handler(struct trapframe *tf)
             uint64_t len = tf->rsi;
             for (uint64_t i = 0; i < len; i++)
                 render_putc(msg[i], 0xFFFFFF);
+            render_flush();
             tf->rax = 0;
             return tf;
         }

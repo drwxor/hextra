@@ -250,7 +250,7 @@ kmain(void)
 
     render_printf("elf: entering userspace\n");
 
-    user_enter(entry, user_stack_top);
+    user_enter(entry, user_stack_top - 32);
 
     for (;;)
         __asm__ volatile ("hlt");

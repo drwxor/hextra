@@ -1,8 +1,40 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
 #include <unistd.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <sys/syscall.h>
+
+int
+open(const char *path, int flags)
+{
+    if (path == 0)
+    {
+        errno = EFAULT;
+        return -1;
+    }
+
+    long ret = syscall2(SYS_OPEN, (long)path, (long)flags);
+    if (ret < 0)
+    {
+        errno = ENOENT;
+        return -1;
+    }
+
+    return (int)ret;
+}
+
+int
+close(int fd)
+{
+    if (syscall1(SYS_CLOSE, (long)fd) != 0)
+    {
+        errno = EBADF;
+        return -1;
+    }
+
+    return 0;
+}
 
 ssize_t
 read(int fd, void *buf, size_t count)

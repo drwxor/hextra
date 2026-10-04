@@ -149,16 +149,16 @@ map_segment(uint64_t pml4_phys, const uint8_t *file, uint64_t file_size, const s
 int
 elf_load(const void *data, uint64_t size, uint64_t pml4_phys, uint64_t *entry_out, uint64_t *brk_out)
 {
-    render_printf("elf_load: entry\n");
+    debug_printf("elf_load: entry\n");
     if (data == 0 || size < sizeof(struct elf64_ehdr) || pml4_phys == 0)
         return -1;
 
     const uint8_t *file = (const uint8_t *)data;
     struct elf64_ehdr eh;
-    render_printf("elf_load: before kmemcpy file=%x\n", (uint64_t)file);
+    debug_printf("elf_load: before kmemcpy file=%x\n", (uint64_t)file);
     for (volatile int i = 0; i < 100000; i++);
     kmemcpy(&eh, file, sizeof(eh));
-    render_printf("elf_load: ehdr copied\n");
+    debug_printf("elf_load: ehdr copied\n");
 
     if (eh.e_ident[EI_MAG0] != ELF_MAGIC0 ||
         eh.e_ident[EI_MAG1] != ELF_MAGIC1 ||
@@ -167,7 +167,7 @@ elf_load(const void *data, uint64_t size, uint64_t pml4_phys, uint64_t *entry_ou
         render_printf("elf: bad magic\n");
         return -1;
     }
-    render_printf("elf_load: magic ok\n");
+    debug_printf("elf_load: magic ok\n");
 
     if (eh.e_ident[EI_CLASS] != ELFCLASS64 ||
         eh.e_ident[EI_DATA] != ELFDATA2LSB ||
@@ -175,33 +175,33 @@ elf_load(const void *data, uint64_t size, uint64_t pml4_phys, uint64_t *entry_ou
         render_printf("elf: not x86_64 le\n");
         return -1;
     }
-    render_printf("elf_load: class/data/machine ok\n");
+    debug_printf("elf_load: class/data/machine ok\n");
 
     if (eh.e_type != ET_EXEC && eh.e_type != ET_DYN) {
         render_printf("elf: not exec/dyn (type=%d)\n", eh.e_type);
         return -1;
     }
-    render_printf("elf_load: type ok\n");
+    debug_printf("elf_load: type ok\n");
 
     if (eh.e_phentsize != sizeof(struct elf64_phdr) || eh.e_phnum == 0 ||
         eh.e_phnum > 128) {
         render_printf("elf: bad phdrs\n");
         return -1;
     }
-    render_printf("elf_load: phdrs ok num=%d\n", eh.e_phnum);
+    debug_printf("elf_load: phdrs ok num=%d\n", eh.e_phnum);
 
     uint64_t ph_end = eh.e_phoff + (uint64_t)eh.e_phnum * eh.e_phentsize;
     if (ph_end < eh.e_phoff || ph_end > size) {
         render_printf("elf: phdrs out of range\n");
         return -1;
     }
-    render_printf("elf_load: ph range ok\n");
+    debug_printf("elf_load: ph range ok\n");
 
     uint64_t bias = 0;
     if (eh.e_type == ET_DYN)
         bias = USER_LOAD_BASE;
 
-    render_printf("elf_load: type=%s entry=%x bias=%x\n", eh.e_type == ET_DYN ? "DYN" : "EXEC", (uint32_t)eh.e_entry, (uint32_t)bias);
+    debug_printf("elf_load: type=%s entry=%x bias=%x\n", eh.e_type == ET_DYN ? "DYN" : "EXEC", (uint32_t)eh.e_entry, (uint32_t)bias);
 
     uint64_t highest = 0;
 
@@ -237,7 +237,7 @@ elf_load(const void *data, uint64_t size, uint64_t pml4_phys, uint64_t *entry_ou
     if (brk_out)
         *brk_out = highest;
 
-    render_printf("elf: entry=%x brk=%x\n", entry, highest);
+    debug_printf("elf: entry=%x brk=%x\n", entry, highest);
     return 0;
 }
 
