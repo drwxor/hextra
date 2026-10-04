@@ -1136,7 +1136,7 @@ main(void)
     if (getcwd(cwd, sizeof(cwd)))
         var_set("PWD", cwd);
 
-    printf("hextra shell - type 'help' for commands\n");
+    printf("type 'help' for commands\n");
 
     for (;;)
     {
